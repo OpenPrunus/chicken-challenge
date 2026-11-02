@@ -138,5 +138,5 @@ function setLang(l) {
 document.querySelectorAll('#lang button').forEach((b) => { b.onclick = () => setLang(b.dataset.lang); });
 apply();
 
-window.I18N = { t, tn, setLang, apply, get lang() { return lang; }, onChange: (f) => listeners.push(f) };
+window.I18N = { t, tn, setLang, apply, get lang() { return lang; }, onChange: (f) => listeners.push(f), dict: DICT };
 })();

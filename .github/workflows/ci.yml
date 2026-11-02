@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  js-unit:
+    name: JavaScript (unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm run lint
+      - run: npm run test:unit
+
+  php-unit:
+    name: PHP ${{ matrix.php }} (lint + unit tests)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.4', '8.5']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring
+          tools: composer
+          coverage: none
+      - name: Syntax check of every PHP file
+        run: |
+          find web server tests -name '*.php' -print0 | xargs -0 -n1 php -l > /dev/null
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: vendor/bin/phpunit
+
+  integration:
+    name: Multiplayer server (integration tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: mbstring
+          coverage: none
+      - name: Start the real PHP WebSocket server and play against it
+        run: npm run test:integration
+
+  docker:
+    name: Docker image (smoke test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t chicken-challenge:ci .
+      - name: Start the website with a bind-mounted data directory (as in production)
+        run: |
+          mkdir -p "$RUNNER_TEMP/data"
+          sudo chown 33:33 "$RUNNER_TEMP/data"
+          docker run -d --name web -p 8080:80 -v "$RUNNER_TEMP/data:/var/www/html/data" \
+            -e CHICKEN_WS=wss://example.test/ws chicken-challenge:ci
+          docker run -d --name ws -p 8081:8081 -e WS_ALLOWED_ORIGINS=https://example.test \
+            chicken-challenge:ci php /opt/chicken/server.php
+          for i in $(seq 1 30); do curl -fs http://localhost:8080/ >/dev/null && break; sleep 1; done
+      - name: Smoke test
+        run: |
+          set -eu
+          B=http://localhost:8080
+          code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          test "$(code $B/)" = 200
+          curl -s $B/ | grep -q 'wss:\\/\\/example.test\\/ws'
+          for f in engine.js i18n.js game.js style.css; do test "$(code $B/assets/$f)" = 200; done
+          # the scores directory must never be served, even though the bind mount hides its .htaccess
+          echo '[]' | sudo tee "$RUNNER_TEMP/data/scores.json" > /dev/null
+          test "$(code $B/data/scores.json)" = 403
+          # the API validates and persists scores on the host
+          test "$(code -X POST -H 'Content-Type: application/json' -d '{"name":"ci","me":4,"opp":1}' $B/api.php)" = 200
+          test "$(code -X POST -H 'Content-Type: application/json' -d '{"name":"ci","me":4,"opp":3}' $B/api.php)" = 422
+          test "$(code -X POST -d 'not json' $B/api.php)" = 400
+          curl -s $B/api.php | grep -q '"name":"ci"'
+          sudo grep -q '"name":"ci"' "$RUNNER_TEMP/data/scores.json"
+          # the WebSocket server is up and enforces its origin list
+          docker logs ws | grep -q 'listening'
+          H='Connection: Upgrade'; U='Upgrade: websocket'; V='Sec-WebSocket-Version: 13'; K='Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=='
+          curl -s -i --max-time 3 -H "$H" -H "$U" -H "$V" -H "$K" -H 'Origin: https://example.test' http://localhost:8081/ | head -1 | grep -q 101
+          curl -s -i --max-time 3 -H "$H" -H "$U" -H "$V" -H "$K" -H 'Origin: https://evil.test' http://localhost:8081/ | head -1 | grep -q 400
+      - name: Container logs
+        if: failure()
+        run: docker logs web; docker logs ws

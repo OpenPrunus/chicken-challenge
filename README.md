@@ -49,15 +49,35 @@ docker compose up -d --build
 Then open <http://localhost:8080>. See [INSTALL.md](INSTALL.md) for details (without Docker,
 HTTPS reverse proxy, configuration, troubleshooting).
 
+## Tests
+
+```bash
+npm run test:unit          # JavaScript: game engine (physics, aiming, spin, catching, scoring) and FR/EN dictionaries
+composer install && vendor/bin/phpunit   # PHP: score rules, nickname cleaning, WebSocket framing (RFC 6455), results
+npm run test:integration   # starts the real PHP WebSocket server and plays matches against it
+```
+
+Requirements: Node 22+ (no npm dependencies), PHP 8.3+ with Composer. `npm test` runs the JavaScript unit
+tests and the integration tests (which need `php` on the PATH). The GitHub Actions workflow
+(`.github/workflows/ci.yml`) runs everything on each push and pull request: JS unit tests, PHP unit tests on
+8.3, 8.4 and 8.5, the integration tests, and a Docker smoke test.
+
+The pure game logic lives in `web/assets/engine.js` (usable from the browser and from Node), and the
+server's pure functions in `server/lib.php`, so they can be tested without a browser or a running server.
+The integration test can also target an already running server: `WS_URL=ws://localhost:8081 npm run test:integration`.
+
 ## Architecture
 
 ```
 web/                 website, served by Apache (PHP 8.5)
   index.php          single page (menu, lobby, game)
   api.php            leaderboard for games against the AI (JSON)
-  assets/            game.js (engine, rendering, networking), i18n.js (FR/EN) and style.css
+  assets/            engine.js (pure game logic), game.js (rendering, input, networking), i18n.js (FR/EN), style.css
+  lib/scores.php     leaderboard rules (pure functions)
   data/              scores.json (created on first run)
-server/server.php    WebSocket multiplayer server in plain PHP, outside the web root
+server/server.php    WebSocket multiplayer server in plain PHP, outside the web root (pure helpers in lib.php)
+tests/               unit tests (js/, php/) and integration tests (integration/)
+.github/workflows/   CI pipeline
 Dockerfile           php:8.5-apache-trixie image (Debian 13)
 docker-compose.yml   two services: website (8080) and WebSocket server (8081)
 ```

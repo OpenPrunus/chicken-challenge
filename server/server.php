@@ -12,12 +12,14 @@
 declare(strict_types=1);
 set_time_limit(0);
 
-const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+require __DIR__ . '/lib.php';
+
 const MAX_CLIENTS = 500;
-const INVITE_TTL = 20;       // s avant expiration d'un défi
-const FLIGHT_TIMEOUT = 10;   // s : sans verdict du défenseur, le lanceur marque
-const SERVE_TIMEOUT = 30;    // s : un joueur qui ne lance pas perd le point
 const IDLE_TIMEOUT = 90;     // s sans aucun message : déconnexion
+// Délais en secondes, surchargeables par variables d'environnement (utile aux tests d'intégration).
+define('INVITE_TTL', envNum('CHICKEN_INVITE_TTL', 20));         // avant expiration d'un défi
+define('FLIGHT_TIMEOUT', envNum('CHICKEN_FLIGHT_TIMEOUT', 10)); // sans verdict du défenseur, le lanceur marque
+define('SERVE_TIMEOUT', envNum('CHICKEN_SERVE_TIMEOUT', 30));   // un joueur qui ne lance pas perd le point
 
 $port = (int)(getenv('WS_PORT') ?: 8081);
 $allowed = array_values(array_filter(array_map('trim', explode(',', (string)getenv('WS_ALLOWED_ORIGINS')))));
@@ -36,15 +38,6 @@ $nextMatch = 1;
 
 // ------------------------------------------------------------------ utilitaires
 function logm(string $s): void { fwrite(STDOUT, '[' . date('H:i:s') . "] $s\n"); }
-
-function encodeFrame(string $payload, int $opcode = 0x1): string {
-    $len = strlen($payload);
-    $h = chr(0x80 | $opcode);
-    if ($len < 126) $h .= chr($len);
-    elseif ($len < 65536) $h .= chr(126) . pack('n', $len);
-    else $h .= chr(127) . pack('J', $len);
-    return $h . $payload;
-}
 
 function send(int $id, array $msg): void {
     global $clients;
@@ -79,11 +72,6 @@ function dropClient(int $id, bool $sendClose = false): void {
     if ($c['name'] !== null) { logm("- {$c['name']} (#$id) left"); broadcastLobby(); }
 }
 
-function cleanName(string $n): string {
-    $n = preg_replace('/[^\p{L}\p{N} _\-.]/u', '', $n) ?? '';
-    return trim(mb_substr($n, 0, 15));
-}
-
 function broadcastLobby(): void {
     global $clients;
     $list = [];
@@ -93,11 +81,6 @@ function broadcastLobby(): void {
     foreach ($clients as $c) {
         if ($c['name'] !== null && in_array($c['status'], ['lobby', 'queue'], true)) send($c['id'], ['t' => 'lobby', 'players' => $list]);
     }
-}
-
-// ------------------------------------------------------------------ matchs
-function matchOver(int $a, int $b): bool {
-    return $a === 12 || $b === 12 || (max($a, $b) >= 4 && abs($a - $b) >= 2);
 }
 
 function startMatch(int $a, int $b, ?int $first = null): void {
@@ -122,8 +105,6 @@ function startMatch(int $a, int $b, ?int $first = null): void {
     broadcastLobby();
 }
 
-function otherOf(array $m, int $id): int { return $m['a'] === $id ? $m['b'] : $m['a']; }
-
 function leaveMatch(int $id): void {
     global $clients, $matches;
     $mid = $clients[$id]['match'] ?? null;
@@ -139,17 +120,6 @@ function leaveMatch(int $id): void {
     broadcastLobby();
 }
 
-function resultFor(array $m, int $id, string $kind, int $scorerOrCatcher, bool $over): array {
-    $o = otherOf($m, $id);
-    return [
-        't' => 'result', 'kind' => $kind, 'rally' => $m['rally'],
-        'role' => $m['thrower'] === $id ? 'thrower' : 'defender',
-        'by' => $scorerOrCatcher === $id ? 'you' : 'opp',
-        'you' => $m['score'][$id], 'opp' => $m['score'][$o],
-        'next' => $m['turn'] === $id ? 'you' : 'opp', 'over' => $over,
-    ];
-}
-
 function doGoal(int $mid, int $scorer): void {
     global $matches;
     $m = &$matches[$mid];
@@ -160,12 +130,6 @@ function doGoal(int $mid, int $scorer): void {
     $m['t'] = microtime(true) + 2.5;            // délai pour l'animation du but
     foreach ([$m['a'], $m['b']] as $id) send($id, resultFor($m, $id, 'goal', $scorer, $over));
     if ($over) logm("Match #$mid finished: {$m['score'][$m['a']]}-{$m['score'][$m['b']]}");
-}
-
-function num(mixed $v, float $min, float $max): ?float {
-    if (!is_int($v) && !is_float($v)) return null;
-    $f = (float)$v;
-    return is_finite($f) ? max($min, min($max, $f)) : null;
 }
 
 function handleMatchMsg(int $id, string $t, array $msg): void {
@@ -365,25 +329,18 @@ while (true) {
                 @fwrite($s, "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
                 dropClient($id); unset($c); continue;
             }
-            $accept = base64_encode(sha1($hdr['sec-websocket-key'] . WS_GUID, true));
+            $accept = wsAcceptKey($hdr['sec-websocket-key']);
             @fwrite($s, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: $accept\r\n\r\n");
             $c['ws'] = true;
         }
 
         // --- trames
         while (true) {
-            $b = $c['buf']; $n = strlen($b);
-            if ($n < 2) break;
-            $b0 = ord($b[0]); $b1 = ord($b[1]);
-            $fin = ($b0 & 0x80) !== 0; $op = $b0 & 0x0F; $masked = ($b1 & 0x80) !== 0; $len = $b1 & 0x7F; $pos = 2;
-            if ($len === 126) { if ($n < 4) break; $len = unpack('n', substr($b, 2, 2))[1]; $pos = 4; }
-            elseif ($len === 127) { if ($n < 10) break; $len = unpack('J', substr($b, 2, 8))[1]; $pos = 10; }
-            if (!$masked || $len > 8192 || $len < 0) { dropClient($id, true); break; }       // client non conforme
-            if ($n < $pos + 4 + $len) break;
-            $mask = substr($b, $pos, 4);
-            $payload = substr($b, $pos + 4, $len);
-            if ($len > 0) $payload = $payload ^ substr(str_repeat($mask, intdiv($len, 4) + 1), 0, $len);
-            $c['buf'] = (string)substr($b, $pos + 4 + $len);
+            $f = decodeFrame($c['buf']);
+            if ($f === null) break;                                              // trame incomplète : on attend la suite
+            if ($f === false) { dropClient($id, true); break; }                  // client non conforme
+            $c['buf'] = (string)substr($c['buf'], $f['consumed']);
+            ['fin' => $fin, 'op' => $op, 'payload' => $payload] = $f;
 
             if ($op === 0x8) { dropClient($id, true); break; }
             if ($op === 0x9) { $c['out'] .= encodeFrame($payload, 0xA); flushOut($id); continue; }

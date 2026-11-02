@@ -1,0 +1,10 @@
+{
+  "name": "openprunus/chicken-challenge",
+  "description": "Chicken Challenge: a two-player chicken-throwing game (PHP/JS/HTML)",
+  "license": "MIT",
+  "type": "project",
+  "require": { "php": ">=8.3" },
+  "require-dev": { "phpunit/phpunit": "^12.0" },
+  "config": { "sort-packages": true },
+  "scripts": { "test": "phpunit" }
+}

@@ -1,3 +1,7 @@
 web/data/scores.json
 .DS_Store
 *.log
+vendor/
+.phpunit.cache/
+node_modules/
+.phpunit.result.cache

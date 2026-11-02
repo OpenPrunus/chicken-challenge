@@ -11,10 +11,14 @@ const LEVELS = [                          // noms : clés level0..level2
 
 const $ = (id) => document.getElementById(id);
 const cv = $('cv'), ctx = cv.getContext('2d');
-const W = cv.width, H = cv.height, CX = W / 2, CY = 285;
-const HW = 360, HH = 250;           // demi-taille du plan proche
-const GRAV = 0.5;                   // gravité (unités tunnel / s²)
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+// Logique pure (physique, visée, effet, capture, règles) : assets/engine.js, testée sous Node (tests/js).
+const E = window.ChickenEngine;
+const { clamp, proj, step, makeHen, makeHenAim, chaos, catchReach, canCatch, mirrorHen, CX, CY, HW, HH } = E;
+const W = cv.width, H = cv.height;
+const aimPoint = () => E.aimPoint(G.mouse.px, G.mouse.py);              // point du couloir visé par la souris
+const flickSpin = () => E.flickSpin(G.mouse.hist, performance.now());   // effet donné par le coup de poignet
+const matchOver = () => E.matchOver(G.me, G.opp);
+const power = (t0) => E.power(performance.now() - t0);                   // jauge qui oscille 0 -> 1 -> 0
 const rand = (a, b) => a + Math.random() * (b - a);
 
 let avatar = +localStorage.getItem('pc_avatar') || 0;
@@ -216,72 +220,11 @@ function start(netInfo) {
   if (!looping) { looping = true; requestAnimationFrame(loop); }
 }
 
-// La poule part de (x0,y0). a,b ∈ [-1,1] : direction (gauche/droite, haut/bas).
-// Sans visée (a=b=0) elle arrive pile au centre ; la visée l'envoie sur les murs, le plafond ou le sol.
-function makeHen(dir, x0, y0, a, b, spin, speed) {
-  const T = 1 / speed;                                // durée approx. du vol
-  return {
-    z: dir > 0 ? 0 : 1, dir, x: x0, y: y0, speed, spin, speed0: speed, spin0: spin, rot: 0, bounces: 0,
-    vx: a * 3.2 * speed,
-    vy: -y0 / T - 0.5 * GRAV * T + b * 2.8 * speed,
-  };
-}
-
-// Un pas de physique. Retourne 'x' | 'y' si la poule a rebondi sur un mur / le sol / le plafond.
-function step(h, dt) {
-  h.z += h.dir * h.speed * dt;
-  h.x += h.vx * dt; h.y += h.vy * dt;
-  h.vx += h.spin * dt;
-  h.vy += GRAV * dt;
-  h.rot += dt * (6 + h.spin * 4) * h.dir;
-  let hit = null;
-  if (Math.abs(h.x) > 1) {
-    h.x = Math.sign(h.x); h.vx *= -0.88; h.spin *= 0.7; hit = 'x';
-  }
-  if (h.y > 1 || h.y < -1) {
-    h.y = Math.sign(h.y); h.vy *= -0.82; hit = hit || 'y';
-  }
-  if (hit) { h.bounces++; h.speed = Math.max(0.35, h.speed * 0.93); }  // perd de la vitesse
-  return hit;
-}
-
 function bounceFx(h, hit) {
   const p = proj(h.x, h.y, h.z);
   G.bounceFx.push({ x: p.x, y: p.y, t: 0.3, hit, s: p.s });
   feathers(p.x, p.y, 5, 180 * p.s + 40);
   sndBounce();
-}
-
-// Le curseur désigne un point précis du couloir : on cherche la première surface touchée
-// (mur gauche/droit, plafond, sol ou fond) par le rayon qui part de la caméra à travers ce pixel.
-function aimPoint() {
-  const m = G.mouse;
-  const u = clamp((m.px - CX) / HW, -0.97, 0.97), v = clamp((m.py - CY) / HH, -0.97, 0.97);
-  const D = clamp(1 / Math.max(Math.abs(u), Math.abs(v), 0.25), 1.3, 4);   // distance (1 = plan proche, 4 = fond)
-  return { x: clamp(u * D, -1, 1), y: clamp(v * D, -1, 1), z: (D - 1) / 3 };
-}
-
-// La poule part de (x0,y0) vers le point visé ; sur un mur/plafond/sol elle rebondit naturellement.
-function makeHenAim(x0, y0, tgt, spin, speed) {
-  const T = tgt.z / speed;
-  return {
-    z: 0, dir: 1, x: x0, y: y0, speed, spin, speed0: speed, spin0: spin, rot: 0, bounces: 0,
-    vx: (tgt.x - x0) / T,
-    vy: (tgt.y - y0) / T - 0.5 * GRAV * T,
-  };
-}
-
-// Coup de poignet : vitesse latérale de la souris sur les ~120 dernières ms.
-// Souris immobile au relâchement -> 0 (tir droit). Mouvement sec gauche/droite -> effet.
-function flickSpin() {
-  const hist = G.mouse.hist, now = performance.now();
-  const rec = hist.filter((q) => now - q.t <= 120);
-  if (rec.length < 2) return 0;
-  const f = rec[0], l = rec[rec.length - 1];
-  if (now - l.t > 70 || l.t - f.t < 25) return 0;
-  const v = (l.px - f.px) / ((l.t - f.t) / 1000);                       // px canvas / s
-  if (Math.abs(v) < 250) return 0;                                      // zone morte
-  return clamp((Math.abs(v) - 250) / 700, 0, 1) * Math.sign(v) * 2.2;
 }
 
 function playerThrow(power, spin, tgt, x0) {
@@ -296,7 +239,7 @@ function playerThrow(power, spin, tgt, x0) {
 
 // Poule envoyée par l'adversaire : perspective inversée (gauche/droite miroir, elle part du fond).
 function launchNet(hen) {
-  G.hen = { z: 1, dir: -1, x: -hen.x, y: hen.y, vx: -hen.vx, vy: hen.vy, spin: -hen.spin, speed: hen.speed, speed0: hen.speed, spin0: hen.spin, rot: 0, bounces: 0 };
+  G.hen = mirrorHen(hen);
   G.oppXt = G.oppX = -hen.x;
   G.state = 'flight'; G.oppPose = 0.25; G.localResolved = false; sndThrow();
 }
@@ -335,30 +278,11 @@ function goal(who) {
   sndGoal(!atFar);
 }
 
-function matchOver() {
-  const { me, opp } = G;
-  return me === 12 || opp === 12 || (Math.max(me, opp) >= 4 && Math.abs(me - opp) >= 2);
-}
-
-// Pondération : plus la poule est "folle" (rebonds, effet, vitesse de départ), plus la zone de capture est
-// tolérante. Une poule droite reste exigeante ; une poule chaotique reste rattrapable sans être gratuite.
-function chaos(h) {
-  const c = 0.25 * h.bounces
-          + 0.30 * Math.min(1, Math.abs(h.spin0 ?? h.spin) / 2)
-          + 0.30 * Math.max(0, ((h.speed0 ?? h.speed) - 0.9) / 0.7);
-  return clamp(c, 0, 1);
-}
-function catchReach(h) {
-  const c = chaos(h);
-  return { r: 0.42 + 0.22 * c, zmax: 0.25 + 0.08 * c, c };   // rayon de la main (unités tunnel) et fenêtre de timing
-}
-
 function tryCatch() {
   const h = G.hen;
   if (!G || G.state !== 'flight' || !h || h.dir > 0 || G.cooldown > 0) return;
   const m = G.mouse;
-  const reach = catchReach(h);
-  const ok = h.z < reach.zmax && Math.hypot(h.x - m.x, h.y - m.y) < reach.r;
+  const ok = canCatch(h, m.x, m.y);
   if (ok) {
     G.held = { x: h.x, y: h.y, z: 0.02 }; G.hen = null; G.state = 'caught'; G.timer = 0.4; G.turn = 'me'; sndCatch();
     if (G.mode === 'net') { G.localResolved = true; net.send({ t: 'catch' }); }
@@ -367,11 +291,6 @@ function tryCatch() {
     G.cooldown = 0.5;           // trop tôt : les mains se ferment dans le vide
     beep(120, 0.1, 'square', 0.04);
   }
-}
-
-function power(t0) {            // jauge qui oscille 0 → 1 → 0 …
-  const k = ((performance.now() - t0) / 700) % 2;
-  return k < 1 ? k : 2 - k;
 }
 
 const startX = () => clamp(G.mouse.x, -1, 1) * 0.8;
@@ -450,12 +369,6 @@ async function finish() {
     });
     $('overMsg').textContent = r.ok ? t('over.saved') : t('over.notSaved');
   } catch { $('overMsg').textContent = t('over.notSaved2'); }
-}
-
-// ---------- Rendu : DA "BD alternative" (traits noirs épais, grillage de poulailler, paille) ----------
-function proj(x, y, z) {
-  const s = 1 / (1 + 3 * z);
-  return { x: CX + x * HW * s, y: CY + y * HH * s, s };
 }
 
 function rng(seed) {                                  // générateur déterministe : décor identique à chaque partie

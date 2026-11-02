@@ -1,5 +1,6 @@
 <?php
 $v = filemtime(__DIR__ . '/assets/game.js');
+$e = filemtime(__DIR__ . '/assets/engine.js');
 $i = filemtime(__DIR__ . '/assets/i18n.js');
 $c = filemtime(__DIR__ . '/assets/style.css');
 ?><!doctype html>
@@ -72,6 +73,7 @@ $c = filemtime(__DIR__ . '/assets/style.css');
 </main>
 <script>window.CHICKEN_WS = <?= json_encode((string)getenv('CHICKEN_WS')) ?>;</script>
 <script src="assets/i18n.js?v=<?= $i ?>"></script>
+<script src="assets/engine.js?v=<?= $e ?>"></script>
 <script src="assets/game.js?v=<?= $v ?>"></script>
 </body>
 </html>
