@@ -1,12 +1,12 @@
 # Installation
 
-Chicken Challenge se compose de deux processus : le **site** (PHP + Apache, port 80) et le
-**serveur multijoueur** (PHP en ligne de commande, port 8081). Sans le second, seul le mode contre
-l'IA fonctionne.
+Chicken Challenge consists of two processes: the **website** (PHP + Apache, port 80) and the
+**multiplayer server** (PHP command line, port 8081). Without the latter, only the mode against the
+AI works.
 
-## 1. Avec Docker (recommandé)
+## 1. With Docker (recommended)
 
-Prérequis : Docker et Docker Compose.
+Requirements: Docker and Docker Compose.
 
 ```bash
 git clone https://github.com/OpenPrunus/chicken-challenge.git
@@ -14,64 +14,64 @@ cd chicken-challenge
 docker compose up -d --build
 ```
 
-- Jeu : <http://localhost:8080>
-- WebSocket : `ws://localhost:8081`
+- Game: <http://localhost:8080>
+- WebSocket: `ws://localhost:8081`
 
-L'image est basée sur `php:8.5-apache-trixie` (Debian 13, PHP 8.5). Les deux services utilisent la
-même image.
+The image is based on `php:8.5-apache-trixie` (Debian 13, PHP 8.5). Both services use the same
+image.
 
-Commandes utiles :
+Useful commands:
 
 ```bash
-docker compose logs -f chicken-ws     # journal du serveur multijoueur
-docker compose ps                     # état des services
-docker compose down                   # arrêt (les scores sont conservés)
-docker compose down -v                # arrêt ET suppression des scores
+docker compose logs -f chicken-ws     # multiplayer server log
+docker compose ps                     # service status
+docker compose down                   # stop (scores are kept)
+docker compose down -v                # stop AND delete the scores
 ```
 
-### Où sont les scores ?
+### Where are the scores stored?
 
-Dans le volume Docker nommé `chicken-challenge_scores`, monté sur `/var/www/html/data` (fichier
-`scores.json`). Il survit aux reconstructions de l'image.
+In the named Docker volume `chicken-challenge_scores`, mounted on `/var/www/html/data` (file
+`scores.json`). It survives image rebuilds.
 
 ```bash
-# sauvegarde
+# backup
 docker compose cp chicken:/var/www/html/data/scores.json ./scores-backup.json
-# remise à zéro
+# reset
 docker compose exec chicken sh -c 'echo "[]" > /var/www/html/data/scores.json'
 ```
 
-### Changer les ports
+### Changing the ports
 
-Dans `docker-compose.yml`, modifie la partie gauche des `ports` (`"8080:80"`, `"8081:8081"`).
-Si tu changes le port WebSocket, indique l'URL complète dans `CHICKEN_WS` (voir plus bas).
+In `docker-compose.yml`, change the left-hand side of `ports` (`"8080:80"`, `"8081:8081"`).
+If you change the WebSocket port, set the full URL in `CHICKEN_WS` (see below).
 
-## 2. Sans Docker
+## 2. Without Docker
 
-Prérequis : PHP avec les extensions `json` et `mbstring` (version testée : **8.5** ; les autres
-versions n'ont pas été essayées), et un serveur web (Apache, nginx + php-fpm) ou le serveur intégré de PHP pour les tests.
+Requirements: PHP with the `json` and `mbstring` extensions (tested version: **8.5**; other
+versions have not been tried), and a web server (Apache, nginx + php-fpm) or PHP's built-in server
+for testing.
 
 ```bash
 git clone https://github.com/OpenPrunus/chicken-challenge.git
 cd chicken-challenge
 
-# 1) le site (serveur de développement PHP)
+# 1) the website (PHP development server)
 mkdir -p web/data && chmod 775 web/data
 php -S 0.0.0.0:8080 -t web
 
-# 2) le serveur multijoueur, dans un second terminal
+# 2) the multiplayer server, in a second terminal
 php server/server.php
 ```
 
-Pour la production, pointe la racine de ton serveur web sur `web/` (et **pas** sur la racine du
-dépôt : `server/` ne doit jamais être servi par le web). Le dossier `web/data/` doit être
-inscriptible par l'utilisateur du serveur web (`www-data` sous Debian) et ne doit pas être
-téléchargeable :
+In production, point your web server's document root at `web/` (and **not** at the repository
+root: `server/` must never be served over the web). The `web/data/` directory must be writable by
+the web server user (`www-data` on Debian) and must not be downloadable:
 
-- Apache : le fichier `web/data/.htaccess` fourni refuse l'accès, avec `AllowOverride All`.
-- nginx : ajoute `location /data/ { deny all; }`.
+- Apache: the provided `web/data/.htaccess` denies access, with `AllowOverride All`.
+- nginx: add `location /data/ { deny all; }`.
 
-Pour garder le serveur multijoueur actif en permanence, utilise par exemple une unité systemd :
+To keep the multiplayer server running permanently, use for example a systemd unit:
 
 ```ini
 # /etc/systemd/system/chicken-ws.service
@@ -91,26 +91,26 @@ WantedBy=multi-user.target
 
 ## 3. Configuration
 
-| Variable | Où | Rôle | Défaut |
+| Variable | Where | Purpose | Default |
 | --- | --- | --- | --- |
-| `CHICKEN_WS` | site (PHP) | URL WebSocket que le **navigateur** utilise | vide = même hôte, port 8081 |
-| `WS_PORT` | serveur WS | port d'écoute | `8081` |
-| `WS_ALLOWED_ORIGINS` | serveur WS | origines autorisées, séparées par des virgules | vide = toutes |
+| `CHICKEN_WS` | website (PHP) | WebSocket URL used by the **browser** | empty = same host, port 8081 |
+| `WS_PORT` | WS server | listening port | `8081` |
+| `WS_ALLOWED_ORIGINS` | WS server | allowed origins, comma-separated | empty = all |
 
-Avec Docker, ces variables se règlent dans `docker-compose.yml`.
+With Docker, set these variables in `docker-compose.yml`.
 
-## 4. Derrière un reverse proxy HTTPS
+## 4. Behind an HTTPS reverse proxy
 
-Une page servie en HTTPS ne peut ouvrir qu'un WebSocket sécurisé (`wss://`). Il faut donc proxifier
-le WebSocket et indiquer son URL publique.
+A page served over HTTPS can only open a secure WebSocket (`wss://`). You therefore need to proxy
+the WebSocket and give its public URL.
 
-Exemple nginx, avec le WebSocket sous `/ws` :
+nginx example, with the WebSocket under `/ws`:
 
 ```nginx
 server {
     listen 443 ssl;
-    server_name jeu.exemple.fr;
-    # ... certificats ...
+    server_name game.example.com;
+    # ... certificates ...
 
     location / {
         proxy_pass http://127.0.0.1:8080;
@@ -128,31 +128,33 @@ server {
 }
 ```
 
-Puis dans `docker-compose.yml` :
+Then, in `docker-compose.yml`:
 
 ```yaml
   chicken:
     environment:
-      CHICKEN_WS: "wss://jeu.exemple.fr/ws"
+      CHICKEN_WS: "wss://game.example.com/ws"
   chicken-ws:
     environment:
-      WS_ALLOWED_ORIGINS: "https://jeu.exemple.fr"
+      WS_ALLOWED_ORIGINS: "https://game.example.com"
 ```
 
-Redémarre avec `docker compose up -d`.
+Restart with `docker compose up -d`.
 
-## 5. Dépannage
+## 5. Troubleshooting
 
-| Symptôme | Cause probable |
+The game interface is in French, so the messages below are quoted as they appear in the game.
+
+| Symptom | Likely cause |
 | --- | --- |
-| « Serveur multijoueur injoignable » | le service `chicken-ws` ne tourne pas, ou le port 8081 est bloqué (pare-feu, proxy) |
-| Multijoueur muet derrière HTTPS | `CHICKEN_WS` non défini en `wss://`, ou proxy sans en-têtes `Upgrade` |
-| « Classement indisponible » | `api.php` ne répond pas, ou `web/data/` n'est pas inscriptible |
-| Pas de son | les navigateurs n'autorisent le son qu'après un clic : il démarre au premier clic sur « Jouer » |
-| Page obsolète après mise à jour | vider le cache (Ctrl+F5) |
+| "Serveur multijoueur injoignable" (multiplayer server unreachable) | the `chicken-ws` service is not running, or port 8081 is blocked (firewall, proxy) |
+| Multiplayer silent behind HTTPS | `CHICKEN_WS` not set to a `wss://` URL, or the proxy lacks the `Upgrade` headers |
+| "Classement indisponible" (leaderboard unavailable) | `api.php` is not responding, or `web/data/` is not writable |
+| No sound | browsers only allow audio after a click: it starts with the first click on "Play" |
+| Stale page after an update | clear the cache (Ctrl+F5) |
 
-Pour vérifier le serveur WebSocket à la main :
+To check the WebSocket server by hand:
 
 ```bash
-docker compose logs chicken-ws        # doit afficher « Chicken WS en écoute sur :8081 »
+docker compose logs chicken-ws        # should print "Chicken WS en écoute sur :8081"
 ```

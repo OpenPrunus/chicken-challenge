@@ -1,37 +1,40 @@
 # 🐔 Chicken Challenge
 
-Un jeu de lancer de poule à deux joueurs, en **PHP / JavaScript / HTML**, jouable dans le navigateur
-contre une IA ou en ligne contre un autre joueur.
+A two-player chicken-throwing game written in **PHP / JavaScript / HTML**, playable in the browser
+against an AI or online against another player.
 
-Deux joueurs se font face aux deux extrémités d'un long couloir et se lancent une poule à tour de
-rôle. Celui qui rate sa parade prend la poule en pleine figure : **GOAL !**
+Two players face each other at opposite ends of a long tunnel and throw a chicken back and forth.
+Whoever fails to catch it takes the bird right in the face: **GOAL!**
 
-> Projet de fan, inspiré du jeu Flash *Poulaga Challenge* (Yamago, 2003). Aucun élément graphique,
-> sonore ou de code de l'original n'est repris : tout est redessiné en vectoriel dans le canvas et
-> synthétisé avec WebAudio. Non affilié à l'original.
+> Fan project inspired by the Flash game *Poulaga Challenge* (Yamago, 2003). No graphics, sound or
+> code from the original are used: everything is redrawn as vector art on a canvas and synthesized
+> with WebAudio. Not affiliated with the original.
 
-## Fonctionnalités
+> **Note:** the in-game interface is in French.
 
-- **Vue en perspective** dans un couloir de poulailler (grillage, poutres, paille), dessiné au trait
-  noir épais, avec 4 personnages : le fermier, le cochon, le punk et la mamie.
-- **Lancer à la souris** en trois temps :
-  1. *Placement* : la souris déplace ton joueur de gauche à droite.
-  2. *Clic maintenu* : la position est verrouillée, une jauge de puissance oscille, et la souris
-     vise un point précis du couloir (mur, plafond, sol, fond). Une trajectoire en pointillés montre
-     les rebonds prévus.
-  3. *Relâchement* : souris immobile = tir droit ; un coup de poignet sec à gauche ou à droite donne
-     de l'**effet** (trajectoire courbe).
-- **Physique de rebonds** sur les murs, le plafond et le sol, avec perte de vitesse.
-- **Réception** : la poule grossit en arrivant ; il faut cliquer au bon moment, main placée dessus.
-  Trop tôt, la main se ferme dans le vide ; trop tard, elle s'écrase sur l'écran.
-- **Score** : premier à 4 points avec 2 d'écart, 12 maximum. Celui qui marque garde la poule.
-- **Contre l'IA** : 3 niveaux (Collégien, Flic, Commissaire) et un classement local.
-- **Multijoueur en ligne** : salon d'attente, défi par clic sur un pseudo, ou match automatique ;
-  revanche en un clic.
-- Effets : poule aplatie contre l'écran, plumes, tremblement, bruitages de poule synthétisés.
-- Plein écran (touche `F`), quitter avec `Échap`.
+## Features
 
-## Démarrage rapide
+- **Perspective view** of a chicken-coop tunnel (wire mesh, beams, straw) drawn in thick black
+  outlines, with 4 characters: the farmer, the pig, the punk and the granny.
+- **Mouse-driven throw** in three steps:
+  1. *Positioning*: moving the mouse slides your player left and right.
+  2. *Hold the click*: your position is locked, a power gauge oscillates, and the mouse aims at a
+     precise point of the tunnel (wall, ceiling, floor, back). A dotted line previews the
+     trajectory, bounces included.
+  3. *Release*: mouse still = straight shot; a sharp flick to the left or right gives the chicken
+     **spin** (curved trajectory).
+- **Bounce physics** off the walls, ceiling and floor, losing speed on every bounce.
+- **Catching**: the chicken grows as it approaches; click at the right moment with your hand over
+  it. Too early and your hand closes on thin air; too late and it splats against the screen.
+- **Scoring**: first to 4 points with a 2-point lead, 12 maximum. Whoever scores keeps the chicken.
+- **Versus the AI**: 3 difficulty levels (Collégien, Flic, Commissaire) and a local leaderboard.
+- **Online multiplayer**: lobby, challenge a player by clicking their nickname, or automatic
+  matchmaking; one-click rematch.
+- Effects: chicken flattened against the screen, feathers, screen shake, synthesized chicken
+  sound effects.
+- Fullscreen (`F` key), quit with `Esc`.
+
+## Quick start
 
 ```bash
 git clone https://github.com/OpenPrunus/chicken-challenge.git
@@ -39,46 +42,46 @@ cd chicken-challenge
 docker compose up -d --build
 ```
 
-Puis ouvre <http://localhost:8080>. Voir [INSTALL.md](INSTALL.md) pour les détails (sans Docker,
-reverse proxy HTTPS, configuration, dépannage).
+Then open <http://localhost:8080>. See [INSTALL.md](INSTALL.md) for details (without Docker,
+HTTPS reverse proxy, configuration, troubleshooting).
 
 ## Architecture
 
 ```
-web/              site, servi par Apache (PHP 8.5)
-  index.php       page unique (menu, salon, jeu)
-  api.php         classement des parties contre l'IA (JSON)
-  assets/         game.js (moteur, rendu, réseau) et style.css
-  data/           scores.json (créé au premier lancement)
-server/server.php serveur multijoueur WebSocket en PHP pur, hors de la racine web
-Dockerfile        image php:8.5-apache-trixie (Debian 13)
-docker-compose.yml  deux services : site (8080) et WebSocket (8081)
+web/                 website, served by Apache (PHP 8.5)
+  index.php          single page (menu, lobby, game)
+  api.php            leaderboard for games against the AI (JSON)
+  assets/            game.js (engine, rendering, networking) and style.css
+  data/              scores.json (created on first run)
+server/server.php    WebSocket multiplayer server in plain PHP, outside the web root
+Dockerfile           php:8.5-apache-trixie image (Debian 13)
+docker-compose.yml   two services: website (8080) and WebSocket server (8081)
 ```
 
-### Comment fonctionne le multijoueur
+### How multiplayer works
 
-- Le serveur WebSocket (`server/server.php`) n'a aucune dépendance : il implémente RFC 6455
-  directement avec `stream_select`.
-- Les trajectoires sont **déterministes** : le lanceur envoie seulement les paramètres de son tir
-  (position, vitesse, effet). Chaque client rejoue la physique de son côté, avec les coordonnées
-  inversées (gauche/droite en miroir, la poule part du fond pour le défenseur).
-- Pour ne pas subir le lag sur le timing du clic, la **capture est détectée en local** chez le
-  défenseur, qui annonce `catch` ou `miss`. Le serveur tient les scores et le tour de rôle, borne
-  toutes les valeurs reçues et applique des délais (un joueur inactif perd le point).
+- The WebSocket server (`server/server.php`) has no dependencies: it implements RFC 6455 directly
+  on top of `stream_select`.
+- Trajectories are **deterministic**: the thrower only sends the parameters of the shot (position,
+  speed, spin). Each client replays the physics locally with mirrored coordinates (left and right
+  swapped, and the chicken starts from the far end for the defender).
+- To avoid click-timing lag, **the catch is detected locally** on the defender's side, which then
+  reports `catch` or `miss`. The server keeps the scores and the turn order, clamps every value it
+  receives and enforces timeouts (an idle player loses the point).
 
-### Limites connues
+### Known limitations
 
-- Le verdict de capture vient du client défenseur : un client modifié pourrait tricher.
-- Les parties en ligne ne sont pas enregistrées au classement.
-- Pas de reconnexion automatique en cours de match.
+- The catch verdict comes from the defending client, so a modified client could cheat.
+- Online games are not recorded in the leaderboard.
+- No automatic reconnection in the middle of a match.
 
-## Contrôles
+## Controls
 
-| Action | Commande |
+| Action | Control |
 | --- | --- |
-| Se placer | Déplacer la souris |
-| Viser et charger | Clic maintenu + souris |
-| Lancer | Relâcher (coup de poignet = effet) |
-| Attraper | Clic (ou barre d'espace) au bon moment |
-| Plein écran | `F` |
-| Quitter | `Échap` |
+| Move | Move the mouse |
+| Aim and charge | Hold the click + move the mouse |
+| Throw | Release (flick = spin) |
+| Catch | Click (or space bar) at the right moment |
+| Fullscreen | `F` |
+| Quit | `Esc` |
