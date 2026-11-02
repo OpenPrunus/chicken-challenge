@@ -143,18 +143,18 @@ Restart with `docker compose up -d`.
 
 ## 5. Troubleshooting
 
-The game interface is in French, so the messages below are quoted as they appear in the game.
+Messages are quoted as they appear in the English interface.
 
 | Symptom | Likely cause |
 | --- | --- |
-| "Serveur multijoueur injoignable" (multiplayer server unreachable) | the `chicken-ws` service is not running, or port 8081 is blocked (firewall, proxy) |
+| "Multiplayer server unreachable" | the `chicken-ws` service is not running, or port 8081 is blocked (firewall, proxy) |
 | Multiplayer silent behind HTTPS | `CHICKEN_WS` not set to a `wss://` URL, or the proxy lacks the `Upgrade` headers |
-| "Classement indisponible" (leaderboard unavailable) | `api.php` is not responding, or `web/data/` is not writable |
+| "Leaderboard unavailable" | `api.php` is not responding, or `web/data/` is not writable |
 | No sound | browsers only allow audio after a click: it starts with the first click on "Play" |
 | Stale page after an update | clear the cache (Ctrl+F5) |
 
 To check the WebSocket server by hand:
 
 ```bash
-docker compose logs chicken-ws        # should print "Chicken WS en écoute sur :8081"
+docker compose logs chicken-ws        # should print "Chicken WS listening on :8081"
 ```

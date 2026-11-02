@@ -42,3 +42,6 @@ button.big.blue:hover { background:#2f74ea; }
 #invite p { font-weight:700; margin:4px 0; }
 button:disabled { opacity:.35; cursor:not-allowed; box-shadow:none; }
 button:disabled:hover { background:inherit; }
+#lang { position:absolute; top:10px; right:16px; display:flex; gap:4px; }
+#lang button { padding:2px 9px; font-size:.8rem; border-width:2px; }
+#app { position:relative; }

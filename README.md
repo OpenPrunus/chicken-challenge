@@ -10,8 +10,6 @@ Whoever fails to catch it takes the bird right in the face: **GOAL!**
 > code from the original are used: everything is redrawn as vector art on a canvas and synthesized
 > with WebAudio. Not affiliated with the original.
 
-> **Note:** the in-game interface is in French.
-
 ## Features
 
 - **Perspective view** of a chicken-coop tunnel (wire mesh, beams, straw) drawn in thick black
@@ -27,12 +25,18 @@ Whoever fails to catch it takes the bird right in the face: **GOAL!**
 - **Catching**: the chicken grows as it approaches; click at the right moment with your hand over
   it. Too early and your hand closes on thin air; too late and it splats against the screen.
 - **Scoring**: first to 4 points with a 2-point lead, 12 maximum. Whoever scores keeps the chicken.
-- **Versus the AI**: 3 difficulty levels (Collégien, Flic, Commissaire) and a local leaderboard.
+- **Versus the AI**: 3 difficulty levels (Schoolkid, Cop, Chief) and a local leaderboard.
 - **Online multiplayer**: lobby, challenge a player by clicking their nickname, or automatic
   matchmaking; one-click rematch.
 - Effects: chicken flattened against the screen, feathers, screen shake, synthesized chicken
   sound effects.
 - Fullscreen (`F` key), quit with `Esc`.
+- **English and French interface**: the language is detected from the browser (French if the
+  browser is set to French, English otherwise) and can be switched with the **FR / EN** buttons
+  on the menu; the choice is remembered.
+
+Translations live in `web/assets/i18n.js` (one dictionary per language); adding a language is a matter
+of adding a dictionary there and a button in `web/index.php`.
 
 ## Quick start
 
@@ -51,7 +55,7 @@ HTTPS reverse proxy, configuration, troubleshooting).
 web/                 website, served by Apache (PHP 8.5)
   index.php          single page (menu, lobby, game)
   api.php            leaderboard for games against the AI (JSON)
-  assets/            game.js (engine, rendering, networking) and style.css
+  assets/            game.js (engine, rendering, networking), i18n.js (FR/EN) and style.css
   data/              scores.json (created on first run)
 server/server.php    WebSocket multiplayer server in plain PHP, outside the web root
 Dockerfile           php:8.5-apache-trixie image (Debian 13)

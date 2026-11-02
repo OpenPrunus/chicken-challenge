@@ -23,9 +23,9 @@ $port = (int)(getenv('WS_PORT') ?: 8081);
 $allowed = array_values(array_filter(array_map('trim', explode(',', (string)getenv('WS_ALLOWED_ORIGINS')))));
 
 $srv = @stream_socket_server("tcp://0.0.0.0:$port", $errno, $errstr);
-if (!$srv) { fwrite(STDERR, "Impossible d'écouter sur le port $port : $errstr\n"); exit(1); }
+if (!$srv) { fwrite(STDERR, "Cannot listen on port $port: $errstr\n"); exit(1); }
 stream_set_blocking($srv, false);
-fwrite(STDOUT, "Chicken WS en écoute sur :$port\n");
+fwrite(STDOUT, "Chicken WS listening on :$port\n");
 
 $clients = [];   // id => état client
 $byRes = [];     // (int)resource => id
@@ -76,7 +76,7 @@ function dropClient(int $id, bool $sendClose = false): void {
     unset($byRes[(int)$c['sock']]);
     @fclose($c['sock']);
     unset($clients[$id]);
-    if ($c['name'] !== null) { logm("- {$c['name']} (#$id) parti"); broadcastLobby(); }
+    if ($c['name'] !== null) { logm("- {$c['name']} (#$id) left"); broadcastLobby(); }
 }
 
 function cleanName(string $n): string {
@@ -159,7 +159,7 @@ function doGoal(int $mid, int $scorer): void {
     $m['state'] = $over ? 'over' : 'serve';
     $m['t'] = microtime(true) + 2.5;            // délai pour l'animation du but
     foreach ([$m['a'], $m['b']] as $id) send($id, resultFor($m, $id, 'goal', $scorer, $over));
-    if ($over) logm("Match #$mid terminé : {$m['score'][$m['a']]}-{$m['score'][$m['b']]}");
+    if ($over) logm("Match #$mid finished: {$m['score'][$m['a']]}-{$m['score'][$m['b']]}");
 }
 
 function num(mixed $v, float $min, float $max): ?float {
@@ -238,7 +238,7 @@ function handleMsg(int $id, string $raw): void {
     if ($t === 'hello') {
         if ($c['name'] !== null) return;
         $name = cleanName((string)($msg['name'] ?? ''));
-        if ($name === '') { send($id, ['t' => 'error', 'msg' => 'Pseudo invalide.']); return; }
+        if ($name === '') { send($id, ['t' => 'error', 'code' => 'invalid_name', 'msg' => 'Invalid nickname.']); return; }
         $base = $name; $i = 2;
         $taken = fn(string $n) => count(array_filter($GLOBALS['clients'], fn($x) => $x['name'] !== null && mb_strtolower($x['name']) === mb_strtolower($n))) > 0;
         while ($taken($name)) { $name = mb_substr($base, 0, 13) . $i++; }
@@ -256,7 +256,7 @@ function handleMsg(int $id, string $raw): void {
         case 'challenge': {
             $to = (int)($msg['to'] ?? 0);
             if ($to === $id || !isset($clients[$to]) || $clients[$to]['status'] !== 'lobby' || $c['status'] !== 'lobby') {
-                send($id, ['t' => 'declined', 'reason' => 'Ce joueur n\'est plus disponible.']); return;
+                send($id, ['t' => 'declined', 'code' => 'unavailable', 'reason' => 'This player is no longer available.']); return;
             }
             $pending[$to][$id] = $now;
             send($to, ['t' => 'invite', 'from' => ['id' => $id, 'name' => $c['name'], 'kind' => $c['kind']]]);
@@ -266,7 +266,7 @@ function handleMsg(int $id, string $raw): void {
         case 'accept': {
             $from = (int)($msg['from'] ?? 0);
             if (!isset($pending[$id][$from]) || !isset($clients[$from]) || $clients[$from]['status'] !== 'lobby' || $c['status'] !== 'lobby') {
-                send($id, ['t' => 'error', 'msg' => 'Ce défi n\'est plus valable.']); return;
+                send($id, ['t' => 'error', 'code' => 'stale_invite', 'msg' => 'This challenge is no longer valid.']); return;
             }
             unset($pending[$id][$from]);
             startMatch($from, $id);
@@ -274,7 +274,7 @@ function handleMsg(int $id, string $raw): void {
         }
         case 'decline': {
             $from = (int)($msg['from'] ?? 0);
-            if (isset($pending[$id][$from])) { unset($pending[$id][$from]); send($from, ['t' => 'declined', 'reason' => $c['name'] . ' a refusé le défi.']); }
+            if (isset($pending[$id][$from])) { unset($pending[$id][$from]); send($from, ['t' => 'declined', 'code' => 'refused', 'name' => $c['name'], 'reason' => $c['name'] . ' declined the challenge.']); }
             break;
         }
         case 'auto': {
@@ -310,7 +310,7 @@ function tick(): void {
         foreach ($list as $from => $ts) {
             if ($now - $ts > INVITE_TTL) {
                 unset($pending[$to][$from]);
-                send($from, ['t' => 'declined', 'reason' => 'Pas de réponse.']);
+                send($from, ['t' => 'declined', 'code' => 'timeout', 'reason' => 'No answer.']);
                 send($to, ['t' => 'invite_cancel', 'from' => $from]);
             }
         }

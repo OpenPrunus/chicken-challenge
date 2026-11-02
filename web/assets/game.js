@@ -1,11 +1,12 @@
 (() => {
 'use strict';
 
-const CHARS = ['Le Fermier', 'Le Cochon', 'Le Punk', 'La Mamie'];
-const LEVELS = [
-  { name: 'Collégien',   base: 0.60, throwSpeed: [0.7, 1.1] },
-  { name: 'Flic',         base: 0.78, throwSpeed: [0.8, 1.4] },
-  { name: 'Commissaire', base: 0.92, throwSpeed: [1.0, 1.7] },
+const { t, tn } = window.I18N;            // traductions FR / EN (assets/i18n.js)
+const NCHARS = 4;                         // noms : clés char0..char3
+const LEVELS = [                          // noms : clés level0..level2
+  { base: 0.60, throwSpeed: [0.7, 1.1] },
+  { base: 0.78, throwSpeed: [0.8, 1.4] },
+  { base: 0.92, throwSpeed: [1.0, 1.7] },
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -23,15 +24,15 @@ let looping = false;                // une seule boucle d'animation à la fois
 
 // ---------- Menu ----------
 $('pseudo').value = localStorage.getItem('pc_pseudo') || '';
-CHARS.forEach((name, i) => {
+for (let i = 0; i < NCHARS; i++) {
   const b = document.createElement('button');
-  b.title = name;
+  b.title = t('char' + i);
   const c = document.createElement('canvas'); c.width = 56; c.height = 72;
   b.appendChild(c);
   b.onclick = () => { avatar = i; refreshMenu(); };
   $('avatars').appendChild(b);
   const cx = c.getContext('2d'); drawChar(cx, i, 28, 70, 66, true, 1);
-});
+}
 document.querySelectorAll('#levels button').forEach((b) => {
   b.onclick = () => { level = +b.dataset.level; refreshMenu(); };
 });
@@ -47,15 +48,15 @@ async function loadBoard() {
     const r = await (await fetch('api.php')).json();
     const ol = $('board');
     ol.innerHTML = '';
-    if (!r.length) ol.innerHTML = '<li>Personne n\'a encore joué.</li>';
+    if (!r.length) ol.innerHTML = `<li>${t('board.empty')}</li>`;
     r.forEach((p) => {
       const li = document.createElement('li');
       const b = document.createElement('b');
       b.textContent = p.name;                       // textContent : pas d'injection
-      li.append(b, ` — ${p.wins} victoire${p.wins > 1 ? 's' : ''} / ${p.played} match${p.played > 1 ? 's' : ''} (${p.gf}-${p.ga})`);
+      li.append(b, t('board.row', { w: p.wins, p: p.played, gf: p.gf, ga: p.ga }));
       ol.appendChild(li);
     });
-  } catch { $('board').innerHTML = '<li>Classement indisponible.</li>'; }
+  } catch { $('board').innerHTML = `<li>${t('board.error')}</li>`; }
 }
 loadBoard();
 
@@ -64,7 +65,7 @@ $('again').onclick = () => (G && G.mode === 'net' ? netRematch() : start());
 $('toMenu').onclick = () => leaveGame();
 $('btnQuit').onclick = () => {
   if (!G) return;
-  if (G.state === 'over' || (G.me + G.opp === 0) || confirm('Quitter la partie en cours ?')) leaveGame();
+  if (G.state === 'over' || (G.me + G.opp === 0) || confirm(t('game.quit.confirm'))) leaveGame();
 };
 $('btnFs').onclick = toggleFs;
 function toggleFs() {
@@ -192,7 +193,7 @@ function start(netInfo) {
   localStorage.setItem('pc_pseudo', name);
   localStorage.setItem('pc_avatar', avatar);
   localStorage.setItem('pc_level', level);
-  const others = CHARS.map((_, i) => i).filter((i) => i !== avatar);
+  const others = Array.from({ length: NCHARS }, (_, i) => i).filter((i) => i !== avatar);
   G = {
     name, level: LEVELS[level], levelIdx: level,
     me: 0, opp: 0,
@@ -211,7 +212,7 @@ function start(netInfo) {
   document.body.classList.add('playing');
   $('menu').hidden = true; $('lobby').hidden = true; $('invite').hidden = true;
   $('game').hidden = false; $('over').hidden = true;
-  $('again').textContent = netInfo ? 'Revanche' : 'Rejouer'; $('again').disabled = false;
+  $('again').textContent = netInfo ? t('over.rematch') : t('over.again'); $('again').disabled = false;
   if (!looping) { looping = true; requestAnimationFrame(loop); }
 }
 
@@ -323,13 +324,13 @@ function goal(who) {
   const h = G.hen || { x: 0, y: 0 };
   const atFar = who === 'me';                         // j'ai marqué : la poule s'écrase au fond
   const p = proj(h.x, h.y, atFar ? 1 : 0);
-  G.splat = { x: p.x, y: p.y, s: p.s, t: 0, near: !atFar, word: ['PAF !', 'SPLOTCH !', 'PROUT !', 'BOUF !'][Math.floor(Math.random() * 4)] };
+  G.splat = { x: p.x, y: p.y, s: p.s, t: 0, near: !atFar, word: Math.floor(Math.random() * 4) };
   G.hen = null;
   feathers(p.x, p.y, atFar ? 40 : 90, atFar ? 220 : 520);
   if (!atFar) G.shake = 0.5;
   G[who]++;
   G.held = null; G.state = 'goal'; G.timer = 1.9;
-  G.flash = 'GOAL !'; G.flashT = 1.9; G.flashWho = who;
+  G.flash = 'goal'; G.flashT = 1.9; G.flashWho = who;
   G.turn = who;                                       // le marqueur récupère la poule et relance
   sndGoal(!atFar);
 }
@@ -347,7 +348,7 @@ function tryCatch() {
   if (ok) {
     G.held = { x: h.x, y: h.y, z: 0.02 }; G.hen = null; G.state = 'caught'; G.timer = 0.4; G.turn = 'me'; sndCatch();
     if (G.mode === 'net') { G.localResolved = true; net.send({ t: 'catch' }); }
-    G.flash = 'Attrapée !'; G.flashT = 0.6; G.flashWho = 'me';
+    G.flash = 'caught'; G.flashT = 0.6; G.flashWho = 'me';
   } else {
     G.cooldown = 0.5;           // trop tôt : les mains se ferment dans le vide
     beep(120, 0.1, 'square', 0.04);
@@ -409,7 +410,7 @@ function update(dt) {
       const p = clamp(G.level.base - 0.25 * (h.speed - 0.7) - 0.2 * Math.min(1, Math.abs(h.spin)) - 0.05 * h.bounces, 0.1, 0.95);
       if (Math.random() < p) {
         G.held = { x: h.x, y: h.y, z: 1 }; G.hen = null; G.state = 'caught'; G.timer = 0.55; G.turn = 'opp'; G.oppPose = 0.5;
-        G.flash = 'Attrapée !'; G.flashT = 0.7; G.flashWho = 'opp'; sndCatch();
+        G.flash = 'caught'; G.flashT = 0.7; G.flashWho = 'opp'; sndCatch();
       } else {
         h.z = 1; goal('me');
       }
@@ -422,9 +423,9 @@ function update(dt) {
 async function finish() {
   G.state = 'over';
   const won = G.me > G.opp;
-  $('overTitle').textContent = won ? '🏆 VICTOIRE !' : '😵 DÉFAITE…';
-  $('overScore').textContent = `${G.name} ${G.me} – ${G.opp} ${G.mode === 'net' ? G.oppName : LEVELS[G.levelIdx].name}`;
-  $('overMsg').textContent = G.mode === 'net' ? '' : 'Enregistrement du score…';
+  $('overTitle').textContent = won ? t('over.win') : t('over.lose');
+  $('overScore').textContent = `${G.name} ${G.me} – ${G.opp} ${G.mode === 'net' ? G.oppName : t('level' + G.levelIdx)}`;
+  $('overMsg').textContent = G.mode === 'net' ? '' : t('over.saving');
   $('over').hidden = false;
   won ? sndWin() : beep(100, 0.5, 'sawtooth', 0.08);
   if (G.mode === 'net') return;
@@ -433,8 +434,8 @@ async function finish() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: G.name, me: G.me, opp: G.opp, level: G.levelIdx }),
     });
-    $('overMsg').textContent = r.ok ? 'Score enregistré au classement.' : 'Score non enregistré.';
-  } catch { $('overMsg').textContent = 'Score non enregistré (serveur injoignable).'; }
+    $('overMsg').textContent = r.ok ? t('over.saved') : t('over.notSaved');
+  } catch { $('overMsg').textContent = t('over.notSaved2'); }
 }
 
 // ---------- Rendu : DA "BD alternative" (traits noirs épais, grillage de poulailler, paille) ----------
@@ -736,7 +737,7 @@ function drawSplat() {
     ctx.save(); ctx.translate(CX + 250, 175); ctx.rotate(-0.12); ctx.globalAlpha = clamp(1.4 - s.t * 1.6, 0, 1);
     ctx.font = '900 64px Impact, "Arial Black", sans-serif'; ctx.lineWidth = 10; ctx.lineJoin = 'round';
     ctx.strokeStyle = '#000'; ctx.fillStyle = '#ff4d2e'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.strokeText(s.word, 0, 0); ctx.fillText(s.word, 0, 0); ctx.restore();
+    ctx.strokeText(t('splat' + s.word), 0, 0); ctx.fillText(t('splat' + s.word), 0, 0); ctx.restore();
   } else {
     burst(s.x, s.y, 80 * k, 9, '#fff3b0', Math.min(1, 1.6 - s.t * 2.6) * 0.9);
     drawHenArt(ctx, s.x, s.y, 36, 0, 'front', { sx: 1.3, sy: 0.65, dizzy: true, spread: 1 });
@@ -783,12 +784,12 @@ function drawActors() {
 
 function drawHUD() {
   // scores : étiquettes rouges + cases noires
-  tag(14, 12, 'YOU', 'left'); digits(14, 48, G.me, 'left');
+  tag(14, 12, t('tag.you'), 'left'); digits(14, 48, G.me, 'left');
   ctx.fillStyle = '#333'; ctx.font = `bold 15px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(G.name.toUpperCase(), 84, 56);
-  tag(W - 14, 12, 'OPPONENT', 'right'); digits(W - 14, 48, G.opp, 'right');
-  ctx.textAlign = 'right'; ctx.fillStyle = '#333'; ctx.fillText((G.oppName || CHARS[G.oppKind]).toUpperCase(), W - 84, 56);
+  tag(W - 14, 12, t('tag.opp'), 'right'); digits(W - 14, 48, G.opp, 'right');
+  ctx.textAlign = 'right'; ctx.fillStyle = '#333'; ctx.fillText((G.oppName || t('char' + G.oppKind)).toUpperCase(), W - 84, 56);
   ctx.textAlign = 'left'; ctx.fillStyle = '#999'; ctx.font = '13px system-ui'; ctx.textBaseline = 'bottom';
-  ctx.fillText('premier à 4 (2 d\'écart) — 12 max', 12, H - 8);
+  ctx.fillText(t('game.rule'), 12, H - 8);
 
   // la main : curseur noir ; poing fermé après un clic raté
   const m = G.mouse, cp = proj(m.x, m.y, 0), h = G.hen;
@@ -814,20 +815,20 @@ function drawHUD() {
   ctx.textBaseline = 'middle'; ctx.textAlign = 'center'; ctx.font = `bold 22px ${FONT}`; ctx.fillStyle = '#222';
   if (G.state === 'serve') {
     ctx.fillText(G.turn === 'me'
-      ? (G.hold ? 'Vise un point, puis relâche (coup de poignet = effet)' : 'À toi ! Place-toi, puis clique et maintiens')
-      : 'L\'adversaire se prépare…', CX, H - 62);
+      ? (G.hold ? t('hint.aim') : t('hint.serve'))
+      : t('hint.wait'), CX, H - 62);
   } else if (G.state === 'flight' && G.hen.dir < 0) {
-    ctx.fillText('Clique au bon moment pour attraper !', CX, H - 62);
+    ctx.fillText(t('hint.catch'), CX, H - 62);
   }
   if (G.flashT > 0) {
     ctx.save(); ctx.translate(CX, CY - 40);
-    const goalMsg = G.flash === 'GOAL !';
+    const goalMsg = G.flash === 'goal';
     const k = 1 + (goalMsg && G.flashT > 1.6 ? (G.flashT - 1.6) * 3 : 0);
     ctx.scale(k, k); ctx.rotate(goalMsg ? -0.06 : 0);
     ctx.font = goalMsg ? `110px ${FONT}` : `60px ${FONT}`;
     ctx.lineWidth = 14; ctx.strokeStyle = '#000'; ctx.lineJoin = 'round';
     ctx.fillStyle = goalMsg ? (G.flashWho === 'me' ? '#ffb000' : '#e5252a') : '#2fbf4a';
-    ctx.strokeText(G.flash, 0, 0); ctx.fillText(G.flash, 0, 0);
+    ctx.strokeText(t('flash.' + G.flash), 0, 0); ctx.fillText(t('flash.' + G.flash), 0, 0);
     ctx.restore();
   }
 }
@@ -894,7 +895,14 @@ const net = {
     this.ws = null; this.id = null; this.queued = false;
   },
 };
-const lobbyStatus = (t) => { $('lobbyStatus').textContent = t; };
+let lobbyMsg = { key: 'lobby.connecting' };
+function renderStatus() {
+  const { key, vars, n } = lobbyMsg;
+  $('lobbyStatus').textContent = n != null ? tn(key, n, vars) : t(key, vars);
+}
+const lobbyStatus = (key, vars, n) => { lobbyMsg = { key, vars, n }; renderStatus(); };
+const autoLabel = () => { $('auto').textContent = net.queued ? t('lobby.cancel') : t('lobby.auto'); };
+const srvText = (m, fallback) => lobbyStatus(m.code ? 'srv.' + m.code : fallback, { name: m.name });
 
 $('mp').onclick = openLobby;
 $('lobbyBack').onclick = () => { net.close(); $('lobby').hidden = true; $('invite').hidden = true; $('menu').hidden = false; loadBoard(); };
@@ -902,14 +910,26 @@ $('auto').onclick = () => net.send({ t: net.queued ? 'cancel' : 'auto' });
 $('invYes').onclick = () => { if (net.inviteFrom) net.send({ t: 'accept', from: net.inviteFrom.id }); $('invite').hidden = true; net.inviteFrom = null; };
 $('invNo').onclick = () => { if (net.inviteFrom) net.send({ t: 'decline', from: net.inviteFrom.id }); $('invite').hidden = true; net.inviteFrom = null; };
 
+function renderInvite() {
+  if (net.inviteFrom) $('inviteText').textContent = t('invite.text', { name: net.inviteFrom.name });
+}
+
+// changement de langue à chaud : tout ce qui est construit en JS est re-rendu
+window.I18N.onChange(() => {
+  [...$('avatars').children].forEach((b, i) => { b.title = t('char' + i); });
+  loadBoard(); renderStatus(); renderInvite(); autoLabel();
+  if (net.players) renderPlayers(net.players, true);
+  if (G) $('again').textContent = G.mode === 'net' ? t('over.rematch') : t('over.again');
+});
+
 function openLobby() {
   let name = $('pseudo').value.trim().slice(0, 15);
   if (!name) name = 'Joueur' + Math.floor(Math.random() * 900 + 100);
   $('pseudo').value = name;
   localStorage.setItem('pc_pseudo', name); localStorage.setItem('pc_avatar', avatar);
   $('menu').hidden = true; $('lobby').hidden = false;
-  $('players').innerHTML = ''; $('auto').disabled = true; $('auto').textContent = 'MATCH AUTOMATIQUE';
-  lobbyStatus('Connexion au serveur…');
+  $('players').innerHTML = ''; $('auto').disabled = true; autoLabel();
+  lobbyStatus('lobby.connecting');
   net.close();
   let opened = false;
   const ws = net.ws = new WebSocket(net.url());
@@ -922,32 +942,32 @@ function openLobby() {
   ws.onclose = () => {
     clearInterval(net.pingT); net.ws = null; net.id = null;
     if (G && G.mode === 'net' && G.state !== 'over') {
-      G.state = 'over'; $('overTitle').textContent = '🔌 CONNEXION PERDUE';
-      $('overScore').textContent = ''; $('overMsg').textContent = 'Le serveur multijoueur ne répond plus.';
+      G.state = 'over'; $('overTitle').textContent = t('over.lostTitle');
+      $('overScore').textContent = ''; $('overMsg').textContent = t('over.lostMsg');
       $('again').disabled = true; $('over').hidden = false;
     } else if (G && G.mode === 'net') {
-      $('overMsg').textContent = 'Connexion au serveur perdue.'; $('again').disabled = true;
+      $('overMsg').textContent = t('over.lostMsg2'); $('again').disabled = true;
     } else {
       $('auto').disabled = true;
-      lobbyStatus(opened ? 'Déconnecté du serveur.' : 'Serveur multijoueur injoignable (port 8081 ?).');
+      lobbyStatus(opened ? 'net.lost' : 'net.down');
     }
   };
 }
 
-function renderPlayers(list) {
+function renderPlayers(list, keepStatus) {
+  net.players = list;
   const ul = $('players'); ul.innerHTML = '';
-  lobbyStatus(`Connecté en tant que « ${net.name} » — ${list.length} joueur${list.length > 1 ? 's' : ''} en ligne.`);
-  const label = { lobby: 'Disponible', queue: 'Cherche un match…', match: 'En match' };
-  list.forEach((p) => {
+  if (!keepStatus) lobbyStatus('lobby.online', { name: net.name }, list.length);
+    list.forEach((p) => {
     const li = document.createElement('li');
     const c = document.createElement('canvas'); c.width = 28; c.height = 36;
     drawChar(c.getContext('2d'), p.kind, 14, 35, 34, true, 1);
-    const n = document.createElement('b'); n.textContent = p.name + (p.id === net.id ? ' (toi)' : '');
-    const st = document.createElement('span'); st.className = 'st'; st.textContent = label[p.status] || '';
+    const n = document.createElement('b'); n.textContent = p.name + (p.id === net.id ? ' ' + t('lobby.you') : '');
+    const st = document.createElement('span'); st.className = 'st'; st.textContent = t('st.' + p.status);
     li.append(c, n, st);
     if (p.id === net.id) li.classList.add('me');
     else if (p.status === 'lobby') {
-      li.classList.add('free'); li.title = 'Défier ' + p.name;
+      li.classList.add('free'); li.title = t('lobby.challenge', { name: p.name });
       li.onclick = () => net.send({ t: 'challenge', to: p.id });
     }
     ul.appendChild(li);
@@ -958,21 +978,21 @@ function onNet(m) {
   switch (m.t) {
     case 'welcome': net.id = m.id; net.name = m.name; $('pseudo').value = m.name; $('auto').disabled = false; break;
     case 'lobby': renderPlayers(m.players); break;
-    case 'waiting': lobbyStatus(`Défi envoyé à ${m.name}… (20 s)`); break;
-    case 'declined': lobbyStatus(m.reason || 'Défi refusé.'); break;
-    case 'error': lobbyStatus(m.msg || 'Erreur.'); break;
-    case 'queued': net.queued = true; $('auto').textContent = 'ANNULER LA RECHERCHE'; lobbyStatus('Recherche d\'un adversaire…'); break;
-    case 'unqueued': net.queued = false; $('auto').textContent = 'MATCH AUTOMATIQUE'; break;
+    case 'waiting': lobbyStatus('lobby.waiting', { name: m.name }); break;
+    case 'declined': srvText(m, 'srv.refused'); break;
+    case 'error': srvText(m, 'srv.error'); break;
+    case 'queued': net.queued = true; autoLabel(); lobbyStatus('lobby.searching'); break;
+    case 'unqueued': net.queued = false; autoLabel(); break;
     case 'invite':
       net.inviteFrom = m.from;
-      $('inviteText').textContent = `${m.from.name} te défie !`;
+      renderInvite();
       $('invite').hidden = false; beep(660, 0.12, 'triangle', 0.1); setTimeout(() => beep(880, 0.15, 'triangle', 0.1), 130);
       break;
     case 'invite_cancel':
       if (net.inviteFrom && net.inviteFrom.id === m.from) { $('invite').hidden = true; net.inviteFrom = null; }
       break;
     case 'match':
-      net.queued = false; $('auto').textContent = 'MATCH AUTOMATIQUE';
+      net.queued = false; autoLabel();
       start({ opp: m.opp, serve: m.serve });
       break;
     case 'throw':
@@ -982,14 +1002,14 @@ function onNet(m) {
       break;
     case 'pos': if (G && G.mode === 'net') G.oppXt = -m.x; break;
     case 'result': onResult(m); break;
-    case 'rematch_ask': if (G && G.state === 'over') $('overMsg').textContent = 'L\'adversaire veut une revanche !'; break;
+    case 'rematch_ask': if (G && G.state === 'over') $('overMsg').textContent = t('over.rematchAsk'); break;
     case 'oppleft':
       if (!G || G.mode !== 'net') break;
       if (G.state !== 'over') {
-        G.state = 'over'; $('overTitle').textContent = '🏆 VICTOIRE PAR FORFAIT';
+        G.state = 'over'; $('overTitle').textContent = t('over.forfeit');
         $('overScore').textContent = `${G.name} ${G.me} – ${G.opp} ${G.oppName}`; $('over').hidden = false; sndWin();
       }
-      $('overMsg').textContent = 'L\'adversaire a quitté la partie.'; $('again').disabled = true;
+      $('overMsg').textContent = t('over.oppLeft'); $('again').disabled = true;
       break;
   }
 }
@@ -1004,7 +1024,7 @@ function onResult(m) {
       const h = G.hen;
       G.held = { x: h ? h.x : 0, y: h ? h.y : 0, z: 1 };
       G.hen = null; G.state = 'caught'; G.timer = 0.55; G.turn = 'opp'; G.oppPose = 0.5;
-      G.flash = 'Attrapée !'; G.flashT = 0.7; G.flashWho = 'opp'; sndCatch();
+      G.flash = 'caught'; G.flashT = 0.7; G.flashWho = 'opp'; sndCatch();
     } else {
       goal(m.by === 'you' ? 'me' : 'opp');
     }
@@ -1016,7 +1036,7 @@ function onResult(m) {
 
 function netRematch() {
   net.send({ t: 'rematch' });
-  $('again').disabled = true; $('overMsg').textContent = 'En attente de l\'adversaire…';
+  $('again').disabled = true; $('overMsg').textContent = t('over.waitRematch');
 }
 
 // position du joueur envoyée ~10 fois/s pour que l'adversaire te voie glisser sur ta ligne
