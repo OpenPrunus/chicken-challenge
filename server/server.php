@@ -27,13 +27,13 @@ $allowed = array_values(array_filter(array_map('trim', explode(',', (string)gete
 $srv = @stream_socket_server("tcp://0.0.0.0:$port", $errno, $errstr);
 if (!$srv) { fwrite(STDERR, "Cannot listen on port $port: $errstr\n"); exit(1); }
 stream_set_blocking($srv, false);
-fwrite(STDOUT, "Chicken WS listening on :$port\n");
 
 // Classement multijoueur : table chargée au démarrage, réécrite après chaque match classé.
 $dataDir = rtrim((string)(getenv('CHICKEN_DATA_DIR') ?: dirname(__DIR__) . '/web/data'), '/');
 $rankFile = $dataDir . '/multi_scores.json';
 $ranking = loadPlayers($rankFile);
 fwrite(STDOUT, 'Ranking: ' . count($ranking) . " player(s) loaded from $rankFile" . (is_writable($dataDir) ? '' : ' (WARNING: directory not writable, results will not be saved)') . "\n");
+fwrite(STDOUT, "Chicken WS listening on :$port\n");            // dernier message de démarrage : le serveur est prêt
 
 $clients = [];   // id => état client
 $byRes = [];     // (int)resource => id
