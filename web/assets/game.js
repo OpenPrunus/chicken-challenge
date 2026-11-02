@@ -15,7 +15,8 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const E = window.ChickenEngine;
 const { clamp, proj, step, makeHen, makeHenAim, chaos, catchReach, canCatch, mirrorHen, CX, CY, HW, HH } = E;
 const W = cv.width, H = cv.height;
-const aimPoint = () => E.aimPoint(G.mouse.px, G.mouse.py);              // point du couloir visé par la souris
+const aimPoint = () => E.aimFromPointer(G.mouse.px, G.mouse.py, G.mouse.touch);   // point du couloir visé (souris ou doigt)
+const COARSE = matchMedia('(pointer: coarse)').matches;                              // téléphone / tablette
 const flickSpin = () => E.flickSpin(G.mouse.hist, performance.now());   // effet donné par le coup de poignet
 const matchOver = () => E.matchOver(G.me, G.opp);
 const power = (t0) => E.power(performance.now() - t0);                   // jauge qui oscille 0 -> 1 -> 0
@@ -64,7 +65,7 @@ async function loadBoard() {
 }
 loadBoard();
 
-$('play').onclick = () => start();
+$('play').onclick = () => { mobileEnter(); start(); };
 $('again').onclick = () => (G && G.mode === 'net' ? netRematch() : start());
 $('toMenu').onclick = () => leaveGame();
 $('btnQuit').onclick = () => {
@@ -87,6 +88,7 @@ function leaveGame() {                                // en multijoueur on retou
 }
 function quit() {
   G = null;
+  mobileLock(false);
   if (document.fullscreenElement) document.exitFullscreen();
   document.body.classList.remove('playing');
   $('game').hidden = true; $('menu').hidden = false; loadBoard();
@@ -209,11 +211,12 @@ function start(netInfo) {
     time: 0, held: null, bg: null,
     state: 'serve', turn: netInfo && !netInfo.serve ? 'opp' : 'me',      // qui lance
     timer: 0, hen: null, flash: '', flashT: 0, flashWho: 'me',
-    mouse: { x: 0, y: 0, px: CX, py: CY, vx: 0, t: 0, hist: [] },
+    mouse: { x: 0, y: 0, px: CX, py: CY, vx: 0, t: 0, hist: [], touch: false },
     hold: null, cooldown: 0, last: performance.now(), oppPose: 0,
     oppX: 0, particles: [], splat: null, shake: 0, bounceFx: [],
   };
   document.body.classList.add('playing');
+  mobileLock(true);
   $('menu').hidden = true; $('lobby').hidden = true; $('invite').hidden = true;
   $('game').hidden = false; $('over').hidden = true;
   $('again').textContent = netInfo ? t('over.rematch') : t('over.again'); $('again').disabled = false;
@@ -709,18 +712,32 @@ function drawActors() {
 
 }
 
+// Texte du HUD qui tient dans maxW (on réduit la police, puis on tronque) : un pseudo de 15 lettres ne doit pas
+// passer sous les boutons Quitter / plein écran, placés en haut au centre sur mobile.
+function fitText(text, x, y, maxW) {
+  let size = 15;
+  ctx.font = `bold ${size}px ${FONT}`;
+  while (size > 11 && ctx.measureText(text).width > maxW) { size--; ctx.font = `bold ${size}px ${FONT}`; }
+  if (ctx.measureText(text).width > maxW) {
+    while (text.length > 1 && ctx.measureText(text + '…').width > maxW) text = text.slice(0, -1);
+    text += '…';
+  }
+  ctx.fillText(text, x, y);
+}
+
 function drawHUD() {
   // scores : étiquettes rouges + cases noires
   tag(14, 12, t('tag.you'), 'left'); digits(14, 48, G.me, 'left');
-  ctx.fillStyle = '#333'; ctx.font = `bold 15px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(G.name.toUpperCase(), 84, 56);
+  ctx.fillStyle = '#333'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; fitText(G.name.toUpperCase(), 84, 56, 160);
   tag(W - 14, 12, t('tag.opp'), 'right'); digits(W - 14, 48, G.opp, 'right');
-  ctx.textAlign = 'right'; ctx.fillStyle = '#333'; ctx.fillText((G.oppName || t('char' + G.oppKind)).toUpperCase(), W - 84, 56);
+  ctx.textAlign = 'right'; ctx.fillStyle = '#333'; fitText((G.oppName || t('char' + G.oppKind)).toUpperCase(), W - 84, 56, 140);
   ctx.textAlign = 'left'; ctx.fillStyle = '#999'; ctx.font = '13px system-ui'; ctx.textBaseline = 'bottom';
   ctx.fillText(t('game.rule'), 12, H - 8);
 
   // la main : curseur noir ; poing fermé après un clic raté
   const m = G.mouse, cp = proj(m.x, m.y, 0), h = G.hen;
   const defending = G.state === 'flight' && h && h.dir < 0;
+  const touchUI = m.touch || COARSE;                      // interface au doigt : pas de main de souris au repos, textes tactiles
   if (G.hold) {
     const pw = power(G.hold.t0), tgt = aimPoint();
     drawPreview(makeHenAim(G.hold.sx, 0.6, tgt, flickSpin(), 0.7 + pw * 0.9));
@@ -730,22 +747,26 @@ function drawHUD() {
     ctx.beginPath(); ctx.arc(tp.x, tp.y, 18 * tp.s + 7, 0, 7);
     ctx.moveTo(tp.x - 26 * tp.s - 10, tp.y); ctx.lineTo(tp.x + 26 * tp.s + 10, tp.y);
     ctx.moveTo(tp.x, tp.y - 26 * tp.s - 10); ctx.lineTo(tp.x, tp.y + 26 * tp.s + 10); ctx.stroke();
+    if (m.touch) {                                       // où est le doigt : bague + trait vers le viseur
+      ctx.strokeStyle = '#000a'; ctx.lineWidth = 3; ctx.setLineDash([5, 5]);
+      ctx.beginPath(); ctx.arc(m.px, m.py, 26, 0, 7); ctx.moveTo(m.px, m.py - 26); ctx.lineTo(m.px, m.py - E.TOUCH_AIM_OFFSET + 18); ctx.stroke(); ctx.setLineDash([]);
+    }
     ctx.fillStyle = '#fff'; ctx.fillRect(CX - 120, H - 38, 240, 22);
     ctx.fillStyle = '#ff9a00'; ctx.fillRect(CX - 120, H - 38, 240 * pw, 22);
     ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.strokeRect(CX - 120, H - 38, 240, 22);
   } else if (defending || G.state === 'caught') {
-    drawHand(ctx, cp.x, cp.y, 150 * (1 + 0.3 * (h ? chaos(h) : 0)), G.cooldown > 0 || G.state === 'caught');
-  } else {
+    // au doigt, la main n'apparaît que là où l'on vient de taper (poing fermé si raté, ou poule attrapée)
+    if (!touchUI || G.cooldown > 0 || G.state === 'caught') drawHand(ctx, cp.x, cp.y, 150 * (1 + 0.3 * (h ? chaos(h) : 0)), G.cooldown > 0 || G.state === 'caught');
+  } else if (!touchUI) {
     drawHand(ctx, cp.x, cp.y, 90, false, 0.85);
   }
-
   ctx.textBaseline = 'middle'; ctx.textAlign = 'center'; ctx.font = `bold 22px ${FONT}`; ctx.fillStyle = '#222';
   if (G.state === 'serve') {
     ctx.fillText(G.turn === 'me'
-      ? (G.hold ? t('hint.aim') : t('hint.serve'))
+      ? (G.hold ? t('hint.aim') : t(touchUI ? 'hint.serve.touch' : 'hint.serve'))
       : t('hint.wait'), CX, H - 62);
   } else if (G.state === 'flight' && G.hen.dir < 0) {
-    ctx.fillText(t('hint.catch'), CX, H - 62);
+    ctx.fillText(t(touchUI ? 'hint.catch.touch' : 'hint.catch'), CX, H - 62);
   }
   if (G.flashT > 0) {
     ctx.save(); ctx.translate(CX, CY - 40);
@@ -773,6 +794,9 @@ function loop(now) {
 }
 
 // ---------- Entrées ----------
+// Souris : on se place en bougeant, clic maintenu + souris pour viser, relâcher pour lancer, clic pour attraper.
+// Doigt   : on pose le doigt (la position est verrouillée), on glisse pour viser (viseur décalé au-dessus du
+//           doigt), on relâche pour lancer ; pour attraper, on tape sur la poule au bon moment.
 function pointer(e) {
   const r = cv.getBoundingClientRect();
   const px = (e.clientX - r.left) * (W / r.width), py = (e.clientY - r.top) * (H / r.height);
@@ -783,24 +807,43 @@ function pointer(e) {
     m.vx = m.vx * 0.5 + inst * 0.5;
   }
   m.x = nx; m.y = ny; m.px = px; m.py = py; m.t = t;
+  m.touch = e.pointerType === 'touch';
   m.hist.push({ t, px }); while (m.hist.length && t - m.hist[0].t > 300) m.hist.shift();
 }
-cv.addEventListener('pointermove', (e) => { if (G) pointer(e); });
+const foreign = (e) => G && G.hold && e.pointerId !== G.hold.pid;       // un second doigt ne perturbe pas la visée
+cv.addEventListener('pointermove', (e) => { if (G && !foreign(e)) pointer(e); });
 cv.addEventListener('pointerdown', (e) => {
-  if (!G) return;
-  pointer(e); cv.setPointerCapture(e.pointerId);
+  if (!G || foreign(e)) return;
+  pointer(e); cv.setPointerCapture?.(e.pointerId);
   if (G.state === 'serve' && G.turn === 'me') {
-    G.hold = { t0: performance.now(), sx: startX() };      // le clic verrouille la position du joueur
+    G.hold = { t0: performance.now(), sx: startX(), pid: e.pointerId };   // le clic / le doigt verrouille la position du joueur
   } else tryCatch();
 });
 cv.addEventListener('pointerup', (e) => {
-  if (!G || !G.hold) return;
+  if (!G || !G.hold || foreign(e)) return;
   pointer(e);
   const hd = G.hold, pw = clamp(power(hd.t0), 0.1, 1);
   const spin = flickSpin(), tgt = aimPoint();
   G.hold = null;
   if (G.state === 'serve' && G.turn === 'me') playerThrow(pw, spin, tgt, hd.sx);
 });
+cv.addEventListener('pointercancel', (e) => { if (G && G.hold && e.pointerId === G.hold.pid) G.hold = null; });   // geste système : on annule le tir
+cv.addEventListener('contextmenu', (e) => e.preventDefault());                                                  // pas de menu au toucher long
+
+// Le son n'est autorisé par les navigateurs mobiles qu'après un geste : on réveille l'AudioContext au premier toucher.
+addEventListener('pointerdown', () => { try { audio().resume(); } catch {} }, { passive: true });
+
+// Mobile : plein écran et paysage, quand l'appareil les permet (iOS n'autorise ni l'un ni l'autre sur iPhone).
+function mobileEnter() {
+  if (!COARSE) return;
+  document.documentElement.requestFullscreen?.().catch(() => {});
+}
+function mobileLock(on) {
+  if (!COARSE) return;
+  try { on ? screen.orientation?.lock?.('landscape')?.catch(() => {}) : screen.orientation?.unlock?.(); } catch {}
+}
+if (!document.documentElement.requestFullscreen) $('btnFs').hidden = true;
+$('rotateOk').onclick = () => document.body.classList.add('rotate-ok');
 addEventListener('keydown', (e) => {
   if (!G) return;
   if (e.code === 'Space') { e.preventDefault(); tryCatch(); }
@@ -831,7 +874,7 @@ const lobbyStatus = (key, vars, n) => { lobbyMsg = { key, vars, n }; renderStatu
 const autoLabel = () => { $('auto').textContent = net.queued ? t('lobby.cancel') : t('lobby.auto'); };
 const srvText = (m, fallback) => lobbyStatus(m.code ? 'srv.' + m.code : fallback, { name: m.name });
 
-$('mp').onclick = openLobby;
+$('mp').onclick = () => { mobileEnter(); openLobby(); };
 $('lobbyBack').onclick = () => { net.close(); $('lobby').hidden = true; $('invite').hidden = true; $('menu').hidden = false; loadBoard(); };
 $('auto').onclick = () => net.send({ t: net.queued ? 'cancel' : 'auto' });
 $('invYes').onclick = () => { if (net.inviteFrom) net.send({ t: 'accept', from: net.inviteFrom.id }); $('invite').hidden = true; net.inviteFrom = null; };
@@ -972,4 +1015,7 @@ setInterval(() => {
   const x = +(G.hold ? G.hold.sx : startX()).toFixed(2);
   if (Math.abs(x - G.posX) > 0.02) { G.posX = x; net.send({ t: 'pos', x }); }
 }, 100);
+
+// Tests de navigateur (tests/browser) : expose l'état du jeu uniquement si l'URL contient ?e2e.
+if (new URLSearchParams(location.search).has('e2e')) window.__chickenDebug = Object.assign(() => G, { aim: () => aimPoint() });
 })();

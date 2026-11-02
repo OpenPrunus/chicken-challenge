@@ -46,6 +46,12 @@
     return { x: clamp(u * D, -1, 1), y: clamp(v * D, -1, 1), z: (D - 1) / 3 };
   }
 
+  // Au doigt, le viseur est décalé au-dessus du point touché pour ne pas être caché par la main.
+  const TOUCH_AIM_OFFSET = 70;
+  function aimFromPointer(px, py, isTouch) {
+    return aimPoint(px, py - (isTouch ? TOUCH_AIM_OFFSET : 0));
+  }
+
   // Un pas de physique. Retourne 'x' | 'y' si la poule a rebondi (mur / sol ou plafond), sinon null.
   function step(h, dt) {
     h.z += h.dir * h.speed * dt;
@@ -113,7 +119,7 @@
   }
 
   return {
-    W, H, CX, CY, HW, HH, GRAV, clamp, proj, makeHen, makeHenAim, aimPoint, step,
+    W, H, CX, CY, HW, HH, GRAV, TOUCH_AIM_OFFSET, clamp, proj, makeHen, makeHenAim, aimPoint, aimFromPointer, step,
     flickSpin, power, chaos, catchReach, canCatch, mirrorHen, matchOver,
   };
 });

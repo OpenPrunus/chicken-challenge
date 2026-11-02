@@ -31,6 +31,10 @@ Whoever fails to catch it takes the bird right in the face: **GOAL!**
 - Effects: chicken flattened against the screen, feathers, screen shake, synthesized chicken
   sound effects.
 - Fullscreen (`F` key), quit with `Esc`.
+- **Mobile friendly**: responsive menu, landscape layout that uses the full screen height (with a prompt to rotate
+  the device), tap-sized buttons, and touch controls: put a finger down to lock your position, drag to aim (the
+  crosshair appears above the finger so it stays visible), release to throw, flick sideways for spin, and tap the
+  chicken to catch it. Fullscreen and landscape lock are requested automatically where the browser allows it.
 - **English and French interface**: the language is detected from the browser (French if the
   browser is set to French, English otherwise) and can be switched with the **FR / EN** buttons
   on the menu; the choice is remembered.
@@ -55,12 +59,14 @@ HTTPS reverse proxy, configuration, troubleshooting).
 npm run test:unit          # JavaScript: game engine (physics, aiming, spin, catching, scoring) and FR/EN dictionaries
 composer install && vendor/bin/phpunit   # PHP: score rules, nickname cleaning, WebSocket framing (RFC 6455), results
 npm run test:integration   # starts the real PHP WebSocket server and plays matches against it
+npm run test:browser       # headless Chrome with an emulated phone: layout, orientation, touch aiming and catching
 ```
 
-Requirements: Node 22+ (no npm dependencies), PHP 8.3+ with Composer. `npm test` runs the JavaScript unit
-tests and the integration tests (which need `php` on the PATH). The GitHub Actions workflow
+Requirements: Node 22+ (no npm dependencies), PHP 8.3+ with Composer, and Chrome/Chromium for the browser tests
+(`CHROME_BIN` to point at a specific binary, `BASE_URL` to target a site that is already running). `npm test` runs the JavaScript unit
+tests and the integration tests (which need `php` on the PATH) and the browser tests. The GitHub Actions workflow
 (`.github/workflows/ci.yml`) runs everything on each push and pull request: JS unit tests, PHP unit tests on
-8.3, 8.4 and 8.5, the integration tests, and a Docker smoke test.
+8.3, 8.4 and 8.5, the integration tests, the mobile browser tests, and a Docker smoke test.
 
 The pure game logic lives in `web/assets/engine.js` (usable from the browser and from Node), and the
 server's pure functions in `server/lib.php`, so they can be tested without a browser or a running server.
@@ -107,6 +113,8 @@ docker-compose.yml   two services: website (8080) and WebSocket server (8081)
 | Aim and charge | Hold the click + move the mouse |
 | Throw | Release (flick = spin) |
 | Catch | Click (or space bar) at the right moment |
+| Touch: throw | Finger down (locks position), drag to aim, lift to release |
+| Touch: catch | Tap the chicken at the right moment |
 | Fullscreen | `F` |
 | Quit | `Esc` |
 

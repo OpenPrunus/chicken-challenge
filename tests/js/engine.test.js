@@ -57,6 +57,39 @@ describe('visée (aimPoint)', () => {
   });
 });
 
+describe('visée au doigt (aimFromPointer)', () => {
+  test('à la souris, c\'est exactement aimPoint', () => {
+    for (const [px, py] of [[400, 285], [200, 100], [650, 450], [10, 10]]) {
+      assert.deepEqual(E.aimFromPointer(px, py, false), E.aimPoint(px, py));
+    }
+  });
+  test('au doigt, le viseur est décalé de TOUCH_AIM_OFFSET pixels au-dessus du doigt', () => {
+    assert.equal(E.TOUCH_AIM_OFFSET, 70);
+    for (const [px, py] of [[400, 355], [250, 300], [600, 420]]) {
+      assert.deepEqual(E.aimFromPointer(px, py, true), E.aimPoint(px, py - E.TOUCH_AIM_OFFSET));
+    }
+  });
+  test('un doigt posé au centre, 70 px sous le point de fuite, vise le fond du couloir', () => {
+    const t = E.aimFromPointer(E.CX, E.CY + E.TOUCH_AIM_OFFSET, true);
+    assert.equal(t.z, 1);
+    near(t.x, 0, 1e-9); near(t.y, 0, 1e-9);
+  });
+  test('un doigt bas sur l\'écran peut viser le plafond (le décalage ne bloque pas la visée haute)', () => {
+    const t = E.aimFromPointer(E.CX, E.H - 20, true);                      // doigt tout en bas
+    assert.ok(t.y > -1, 'pas encore le plafond');
+    assert.equal(E.aimFromPointer(E.CX, E.CY - E.HH * 0.97 + E.TOUCH_AIM_OFFSET, true).y, -1);
+  });
+  test('au doigt comme à la souris, les valeurs restent bornées', () => {
+    const t = E.aimFromPointer(-9999, 9999, true);
+    assert.ok(Math.abs(t.x) <= 1 && Math.abs(t.y) <= 1 && t.z >= 0 && t.z <= 1);
+  });
+  test('un lancer visé au doigt rebondit comme à la souris (même physique)', () => {
+    const tgtT = E.aimFromPointer(E.CX - 150, E.CY + E.TOUCH_AIM_OFFSET, true);
+    const tgtM = E.aimFromPointer(E.CX - 150, E.CY, false);
+    assert.deepEqual(tgtT, tgtM);
+  });
+});
+
 describe('lancers', () => {
   test('makeHen sans visée arrive pile au centre du fond', () => {
     const h = E.makeHen(+1, 0, 0.6, 0, 0, 0, 1.0);

@@ -86,6 +86,40 @@ describe('traduction', () => {
   });
 });
 
+describe('textes mobiles', () => {
+  const { dict, t } = load({ languages: ['en-US'] }).I18N;
+  test('les indications tactiles existent en FR et EN et diffèrent de celles de la souris', () => {
+    for (const l of ['fr', 'en']) {
+      assert.notEqual(dict[l]['hint.serve.touch'], dict[l]['hint.serve']);
+      assert.notEqual(dict[l]['hint.catch.touch'], dict[l]['hint.catch']);
+      assert.match(dict[l]['hint.catch.touch'], l === 'fr' ? /Tape/ : /Tap/);
+    }
+  });
+  test('les règles tactiles et le message de rotation sont traduits', () => {
+    for (const l of ['fr', 'en']) {
+      assert.match(dict[l]['rules.touch'], /<b>/);
+      assert.ok(dict[l]['rotate.msg'].length > 10 && dict[l]['rotate.anyway'].length > 3);
+    }
+    assert.match(t('rotate.msg'), /landscape/);
+  });
+  test('index.php contient la bannière de rotation et les règles tactiles', () => {
+    const html = read('web/index.php');
+    for (const needle of ['id="rotate"', 'id="rotateOk"', 'data-i18n-html="rules.touch"', 'viewport-fit=cover']) {
+      assert.ok(html.includes(needle), needle);
+    }
+  });
+  test('le CSS prévoit l\'orientation portrait, les écrans étroits et les cibles tactiles', () => {
+    const css = read('web/assets/style.css');
+    assert.match(css, /orientation:\s*portrait/);
+    assert.match(css, /max-width:\s*560px/);
+    assert.match(css, /max-width:\s*900px\)\s*\{[^}]*#lang\s*\{[^}]*position:\s*static/, 'FR/EN ne chevauche pas le titre en paysage');
+    assert.match(css, /pointer:\s*coarse/);
+    assert.match(css, /min-height:\s*44px/);
+    assert.match(css, /100dvh/);
+    assert.match(css, /touch-action:\s*none/);
+  });
+});
+
 describe('cohérence des dictionnaires', () => {
   const { dict } = load({ languages: ['en-US'] }).I18N;
   const keys = (l) => Object.keys(dict[l]).sort();
@@ -113,6 +147,10 @@ describe('cohérence des dictionnaires', () => {
     for (const k of used) {
       const ok = k in dict.fr || (k + '_one') in dict.fr;       // clés pluriel : lobby.online_one / _other
       assert.ok(ok, `clé utilisée mais absente : ${k}`);
+    }
+    // clés choisies par un ternaire : t(cond ? 'a' : 'b')
+    for (const m of js.matchAll(/\bt\(\s*[\w.]+\s*\?\s*'([\w.]+)'\s*:\s*'([\w.]+)'\s*\)/g)) {
+      for (const k of [m[1], m[2]]) assert.ok(k in dict.fr && k in dict.en, `clé (ternaire) absente : ${k}`);
     }
     // familles construites dynamiquement dans game.js
     const families = [

@@ -7,7 +7,8 @@ $c = filemtime(__DIR__ . '/assets/style.css');
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#fbfbf8">
 <title>Chicken Challenge</title>
 <link rel="stylesheet" href="assets/style.css?v=<?= $c ?>">
 </head>
@@ -36,6 +37,7 @@ $c = filemtime(__DIR__ . '/assets/style.css');
     <details>
       <summary data-i18n="rules.title">Rules</summary>
       <p data-i18n-html="rules.body"></p>
+      <p data-i18n-html="rules.touch"></p>
     </details>
     <h2 data-i18n="board.title">Leaderboard</h2>
     <ol id="board"><li>…</li></ol>
@@ -54,6 +56,12 @@ $c = filemtime(__DIR__ . '/assets/style.css');
     <p id="inviteText"></p>
     <button id="invYes" class="big" data-i18n="invite.yes">ACCEPT</button>
     <button id="invNo" data-i18n="invite.no">Decline</button>
+  </div>
+
+  <div id="rotate" role="alert">
+    <div class="phone" aria-hidden="true">📱</div>
+    <p data-i18n="rotate.msg">Rotate your device to landscape to play.</p>
+    <button id="rotateOk" data-i18n="rotate.anyway">Play anyway</button>
   </div>
 
   <section id="game" hidden>

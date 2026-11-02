@@ -61,6 +61,24 @@ jobs:
       - name: Start the real PHP WebSocket server and play against it
         run: npm run test:integration
 
+  browser:
+    name: Mobile browser (emulated touch device)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: mbstring
+          coverage: none
+      - name: Drive headless Chrome with an emulated phone (layout, orientation, touch aiming and catching)
+        run: npm run test:browser
+        env:
+          CHROME_BIN: google-chrome
+
   docker:
     name: Docker image (smoke test)
     runs-on: ubuntu-latest
