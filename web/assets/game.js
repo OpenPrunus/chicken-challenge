@@ -1,0 +1,1028 @@
+(() => {
+'use strict';
+
+const CHARS = ['Le Fermier', 'Le Cochon', 'Le Punk', 'La Mamie'];
+const LEVELS = [
+  { name: 'Collégien',   base: 0.60, throwSpeed: [0.7, 1.1] },
+  { name: 'Flic',         base: 0.78, throwSpeed: [0.8, 1.4] },
+  { name: 'Commissaire', base: 0.92, throwSpeed: [1.0, 1.7] },
+];
+
+const $ = (id) => document.getElementById(id);
+const cv = $('cv'), ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height, CX = W / 2, CY = 285;
+const HW = 360, HH = 250;           // demi-taille du plan proche
+const GRAV = 0.5;                   // gravité (unités tunnel / s²)
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rand = (a, b) => a + Math.random() * (b - a);
+
+let avatar = +localStorage.getItem('pc_avatar') || 0;
+let level = +(localStorage.getItem('pc_level') ?? 1);
+let G = null;                       // état de la partie
+let looping = false;                // une seule boucle d'animation à la fois
+
+// ---------- Menu ----------
+$('pseudo').value = localStorage.getItem('pc_pseudo') || '';
+CHARS.forEach((name, i) => {
+  const b = document.createElement('button');
+  b.title = name;
+  const c = document.createElement('canvas'); c.width = 56; c.height = 72;
+  b.appendChild(c);
+  b.onclick = () => { avatar = i; refreshMenu(); };
+  $('avatars').appendChild(b);
+  const cx = c.getContext('2d'); drawChar(cx, i, 28, 70, 66, true, 1);
+});
+document.querySelectorAll('#levels button').forEach((b) => {
+  b.onclick = () => { level = +b.dataset.level; refreshMenu(); };
+});
+function refreshMenu() {
+  [...$('avatars').children].forEach((b, i) => b.classList.toggle('sel', i === avatar));
+  document.querySelectorAll('#levels button').forEach((b) =>
+    b.classList.toggle('sel', +b.dataset.level === level));
+}
+refreshMenu();
+
+async function loadBoard() {
+  try {
+    const r = await (await fetch('api.php')).json();
+    const ol = $('board');
+    ol.innerHTML = '';
+    if (!r.length) ol.innerHTML = '<li>Personne n\'a encore joué.</li>';
+    r.forEach((p) => {
+      const li = document.createElement('li');
+      const b = document.createElement('b');
+      b.textContent = p.name;                       // textContent : pas d'injection
+      li.append(b, ` — ${p.wins} victoire${p.wins > 1 ? 's' : ''} / ${p.played} match${p.played > 1 ? 's' : ''} (${p.gf}-${p.ga})`);
+      ol.appendChild(li);
+    });
+  } catch { $('board').innerHTML = '<li>Classement indisponible.</li>'; }
+}
+loadBoard();
+
+$('play').onclick = () => start();
+$('again').onclick = () => (G && G.mode === 'net' ? netRematch() : start());
+$('toMenu').onclick = () => leaveGame();
+$('btnQuit').onclick = () => {
+  if (!G) return;
+  if (G.state === 'over' || (G.me + G.opp === 0) || confirm('Quitter la partie en cours ?')) leaveGame();
+};
+$('btnFs').onclick = toggleFs;
+function toggleFs() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen?.().catch(() => {});
+}
+function leaveGame() {                                // en multijoueur on retourne au salon, sinon au menu
+  if (G && G.mode === 'net') {
+    net.send({ t: 'leave' });
+    G = null;
+    if (document.fullscreenElement) document.exitFullscreen();
+    document.body.classList.remove('playing');
+    $('game').hidden = true; $('lobby').hidden = false;
+  } else quit();
+}
+function quit() {
+  G = null;
+  if (document.fullscreenElement) document.exitFullscreen();
+  document.body.classList.remove('playing');
+  $('game').hidden = true; $('menu').hidden = false; loadBoard();
+}
+
+// ---------- Son ----------
+let ac = null;
+function audio() { return ac = ac || new (window.AudioContext || window.webkitAudioContext)(); }
+function beep(freq, dur = 0.12, type = 'square', vol = 0.06) {
+  try {
+    const a = audio(), o = a.createOscillator(), g = a.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + dur);
+    o.connect(g); g.connect(a.destination);
+    o.start(); o.stop(a.currentTime + dur);
+  } catch {}
+}
+function thump() {                                   // impact "splat" : bruit + grave qui chute
+  try {
+    const a = audio(), n = a.sampleRate * 0.35;
+    const buf = a.createBuffer(1, n, a.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3);
+    const s = a.createBufferSource(), g = a.createGain();
+    s.buffer = buf; g.gain.value = 0.25; s.connect(g); g.connect(a.destination); s.start();
+    const o = a.createOscillator(), og = a.createGain();
+    o.frequency.setValueAtTime(180, a.currentTime);
+    o.frequency.exponentialRampToValueAtTime(35, a.currentTime + 0.3);
+    og.gain.setValueAtTime(0.25, a.currentTime);
+    og.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + 0.3);
+    o.connect(og); og.connect(a.destination); o.start(); o.stop(a.currentTime + 0.3);
+  } catch {}
+}
+// --- bruits de poule synthétisés ---
+// "cot" : bref grognement nasal (dent de scie filtrée, hauteur qui chute vite)
+function cluck(delay = 0, pitch = 1, vol = 0.18, dur = 0.09) {
+  try {
+    const a = audio(), t = a.currentTime + delay;
+    const o = a.createOscillator(), f = a.createBiquadFilter(), g = a.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(520 * pitch, t);
+    o.frequency.exponentialRampToValueAtTime(260 * pitch, t + dur);
+    f.type = 'bandpass'; f.Q.value = 4;
+    f.frequency.setValueAtTime(1400 * pitch, t);
+    f.frequency.exponentialRampToValueAtTime(700 * pitch, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(f); f.connect(g); g.connect(a.destination);
+    o.start(t); o.stop(t + dur + 0.02);
+  } catch {}
+}
+// cri affolé : hauteur qui chute avec un fort vibrato, de plus en plus faible
+function squawk(delay = 0, pitch = 1, dur = 0.55, vol = 0.2) {
+  try {
+    const a = audio(), t = a.currentTime + delay;
+    const o = a.createOscillator(), f = a.createBiquadFilter(), g = a.createGain();
+    const lfo = a.createOscillator(), lg = a.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(900 * pitch, t);
+    o.frequency.exponentialRampToValueAtTime(260 * pitch, t + dur);
+    lfo.frequency.value = 28; lg.gain.value = 70 * pitch;      // vibrato "kkkrâââ"
+    lfo.connect(lg); lg.connect(o.frequency);
+    f.type = 'bandpass'; f.Q.value = 3;
+    f.frequency.setValueAtTime(1800, t);
+    f.frequency.exponentialRampToValueAtTime(600, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(f); f.connect(g); g.connect(a.destination);
+    o.start(t); lfo.start(t); o.stop(t + dur + 0.02); lfo.stop(t + dur + 0.02);
+  } catch {}
+}
+const sndThrow = () => { cluck(0, 1.15, 0.14, 0.07); cluck(0.08, 1.3, 0.12, 0.07); };
+const sndCatch = () => { cluck(0, 0.9, 0.16, 0.1); cluck(0.11, 0.8, 0.14, 0.1); };
+// rebond : "côt !" aigu et écrasé, hauteur variable pour ne pas lasser
+const sndBounce = () => { cluck(0, rand(1.0, 1.4), 0.2, 0.07); };
+// but encaissé : impact, puis la poule qui panique "cot cot cot cooot…" et s'effondre
+function prout(delay = 0, vol = 0.2) {              // pet sonore : dent de scie grave qui ronronne
+  try {
+    const a = audio(), t = a.currentTime + delay;
+    const o = a.createOscillator(), f = a.createBiquadFilter(), g = a.createGain();
+    const lfo = a.createOscillator(), lg = a.createGain();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(95, t); o.frequency.exponentialRampToValueAtTime(55, t + 0.35);
+    lfo.frequency.value = 38; lg.gain.value = 30; lfo.connect(lg); lg.connect(o.frequency);
+    f.type = 'lowpass'; f.frequency.value = 420;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.38);
+    o.connect(f); f.connect(g); g.connect(a.destination);
+    o.start(t); lfo.start(t); o.stop(t + 0.4); lfo.stop(t + 0.4);
+  } catch {}
+}
+const sndGoal = (hitMe) => {
+  thump();
+  if (hitMe && Math.random() < 0.5) prout(0.05);
+  if (hitMe) {
+    [0.12, 0.3, 0.46, 0.6].forEach((d, i) => cluck(d, 1.25 - i * 0.05, 0.22, 0.08));
+    squawk(0.78, 1, 0.7, 0.2);
+  } else {                                        // elle s'écrase au fond : plus lointain, plus bref
+    cluck(0.12, 1.1, 0.12, 0.08); cluck(0.28, 1.0, 0.1, 0.08);
+    squawk(0.42, 0.9, 0.45, 0.1);
+  }
+};
+const sndWin = () => [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => beep(f, 0.2, 'triangle', 0.1), i * 140));
+
+// ---------- Partie ----------
+function start(netInfo) {
+  const name = $('pseudo').value.trim().slice(0, 15) || 'Anonyme';
+  localStorage.setItem('pc_pseudo', name);
+  localStorage.setItem('pc_avatar', avatar);
+  localStorage.setItem('pc_level', level);
+  const others = CHARS.map((_, i) => i).filter((i) => i !== avatar);
+  G = {
+    name, level: LEVELS[level], levelIdx: level,
+    me: 0, opp: 0,
+    mode: netInfo ? 'net' : 'ai',
+    myKind: avatar,
+    oppKind: netInfo ? netInfo.opp.kind : others[Math.floor(Math.random() * others.length)],
+    oppName: netInfo ? netInfo.opp.name : null,
+    rally: 0, localResolved: false, pending: null, oppXt: 0, posX: 9,
+    time: 0, held: null, bg: null,
+    state: 'serve', turn: netInfo && !netInfo.serve ? 'opp' : 'me',      // qui lance
+    timer: 0, hen: null, flash: '', flashT: 0, flashWho: 'me',
+    mouse: { x: 0, y: 0, px: CX, py: CY, vx: 0, t: 0, hist: [] },
+    hold: null, cooldown: 0, last: performance.now(), oppPose: 0,
+    oppX: 0, particles: [], splat: null, shake: 0, bounceFx: [],
+  };
+  document.body.classList.add('playing');
+  $('menu').hidden = true; $('lobby').hidden = true; $('invite').hidden = true;
+  $('game').hidden = false; $('over').hidden = true;
+  $('again').textContent = netInfo ? 'Revanche' : 'Rejouer'; $('again').disabled = false;
+  if (!looping) { looping = true; requestAnimationFrame(loop); }
+}
+
+// La poule part de (x0,y0). a,b ∈ [-1,1] : direction (gauche/droite, haut/bas).
+// Sans visée (a=b=0) elle arrive pile au centre ; la visée l'envoie sur les murs, le plafond ou le sol.
+function makeHen(dir, x0, y0, a, b, spin, speed) {
+  const T = 1 / speed;                                // durée approx. du vol
+  return {
+    z: dir > 0 ? 0 : 1, dir, x: x0, y: y0, speed, spin, rot: 0, bounces: 0,
+    vx: a * 3.2 * speed,
+    vy: -y0 / T - 0.5 * GRAV * T + b * 2.8 * speed,
+  };
+}
+
+// Un pas de physique. Retourne 'x' | 'y' si la poule a rebondi sur un mur / le sol / le plafond.
+function step(h, dt) {
+  h.z += h.dir * h.speed * dt;
+  h.x += h.vx * dt; h.y += h.vy * dt;
+  h.vx += h.spin * dt;
+  h.vy += GRAV * dt;
+  h.rot += dt * (6 + h.spin * 4) * h.dir;
+  let hit = null;
+  if (Math.abs(h.x) > 1) {
+    h.x = Math.sign(h.x); h.vx *= -0.88; h.spin *= 0.7; hit = 'x';
+  }
+  if (h.y > 1 || h.y < -1) {
+    h.y = Math.sign(h.y); h.vy *= -0.82; hit = hit || 'y';
+  }
+  if (hit) { h.bounces++; h.speed = Math.max(0.35, h.speed * 0.93); }  // perd de la vitesse
+  return hit;
+}
+
+function bounceFx(h, hit) {
+  const p = proj(h.x, h.y, h.z);
+  G.bounceFx.push({ x: p.x, y: p.y, t: 0.3, hit, s: p.s });
+  feathers(p.x, p.y, 5, 180 * p.s + 40);
+  sndBounce();
+}
+
+// Le curseur désigne un point précis du couloir : on cherche la première surface touchée
+// (mur gauche/droit, plafond, sol ou fond) par le rayon qui part de la caméra à travers ce pixel.
+function aimPoint() {
+  const m = G.mouse;
+  const u = clamp((m.px - CX) / HW, -0.97, 0.97), v = clamp((m.py - CY) / HH, -0.97, 0.97);
+  const D = clamp(1 / Math.max(Math.abs(u), Math.abs(v), 0.25), 1.3, 4);   // distance (1 = plan proche, 4 = fond)
+  return { x: clamp(u * D, -1, 1), y: clamp(v * D, -1, 1), z: (D - 1) / 3 };
+}
+
+// La poule part de (x0,y0) vers le point visé ; sur un mur/plafond/sol elle rebondit naturellement.
+function makeHenAim(x0, y0, tgt, spin, speed) {
+  const T = tgt.z / speed;
+  return {
+    z: 0, dir: 1, x: x0, y: y0, speed, spin, rot: 0, bounces: 0,
+    vx: (tgt.x - x0) / T,
+    vy: (tgt.y - y0) / T - 0.5 * GRAV * T,
+  };
+}
+
+// Coup de poignet : vitesse latérale de la souris sur les ~120 dernières ms.
+// Souris immobile au relâchement -> 0 (tir droit). Mouvement sec gauche/droite -> effet.
+function flickSpin() {
+  const hist = G.mouse.hist, now = performance.now();
+  const rec = hist.filter((q) => now - q.t <= 120);
+  if (rec.length < 2) return 0;
+  const f = rec[0], l = rec[rec.length - 1];
+  if (now - l.t > 70 || l.t - f.t < 25) return 0;
+  const v = (l.px - f.px) / ((l.t - f.t) / 1000);                       // px canvas / s
+  if (Math.abs(v) < 250) return 0;                                      // zone morte
+  return clamp((Math.abs(v) - 250) / 700, 0, 1) * Math.sign(v) * 2.2;
+}
+
+function playerThrow(power, spin, tgt, x0) {
+  G.hen = makeHenAim(x0, 0.6, tgt, spin, 0.7 + power * 0.9);
+  G.state = 'flight'; sndThrow();
+  if (G.mode === 'net') {                              // trajectoire déterministe : on n'envoie que les paramètres
+    const h = G.hen;
+    G.rally++; G.localResolved = false;
+    net.send({ t: 'throw', hen: { x: h.x, y: h.y, vx: h.vx, vy: h.vy, spin: h.spin, speed: h.speed } });
+  }
+}
+
+// Poule envoyée par l'adversaire : perspective inversée (gauche/droite miroir, elle part du fond).
+function launchNet(hen) {
+  G.hen = { z: 1, dir: -1, x: -hen.x, y: hen.y, vx: -hen.vx, vy: hen.vy, spin: -hen.spin, speed: hen.speed, rot: 0, bounces: 0 };
+  G.oppXt = G.oppX = -hen.x;
+  G.state = 'flight'; G.oppPose = 0.25; G.localResolved = false; sndThrow();
+}
+
+function aiThrow() {
+  const [lo, hi] = G.level.throwSpeed;
+  const x0 = G.oppX = rand(-0.6, 0.6);
+  G.hen = makeHen(-1, x0, 0.35, rand(-1, 1), rand(-1, 0.6), rand(-2, 2) * (Math.random() < 0.7 ? 1 : 0.2), rand(lo, hi));
+  G.state = 'flight'; G.oppPose = 0.25; sndThrow();
+}
+
+// ---------- Effets ----------
+function feathers(x, y, n, power) {
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, Math.PI * 2), v = rand(0.3, 1) * power;
+    G.particles.push({
+      x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - power * 0.3,
+      rot: rand(0, 6), vr: rand(-8, 8), life: rand(0.9, 1.8), max: 1.8,
+      sz: rand(7, 15), col: ['#fff', '#f4f0e0', '#ffd9a0', '#e8d8c0'][i % 4],
+    });
+  }
+}
+
+function goal(who) {
+  const h = G.hen || { x: 0, y: 0 };
+  const atFar = who === 'me';                         // j'ai marqué : la poule s'écrase au fond
+  const p = proj(h.x, h.y, atFar ? 1 : 0);
+  G.splat = { x: p.x, y: p.y, s: p.s, t: 0, near: !atFar, word: ['PAF !', 'SPLOTCH !', 'PROUT !', 'BOUF !'][Math.floor(Math.random() * 4)] };
+  G.hen = null;
+  feathers(p.x, p.y, atFar ? 40 : 90, atFar ? 220 : 520);
+  if (!atFar) G.shake = 0.5;
+  G[who]++;
+  G.held = null; G.state = 'goal'; G.timer = 1.9;
+  G.flash = 'GOAL !'; G.flashT = 1.9; G.flashWho = who;
+  G.turn = who;                                       // le marqueur récupère la poule et relance
+  sndGoal(!atFar);
+}
+
+function matchOver() {
+  const { me, opp } = G;
+  return me === 12 || opp === 12 || (Math.max(me, opp) >= 4 && Math.abs(me - opp) >= 2);
+}
+
+function tryCatch() {
+  const h = G.hen;
+  if (!G || G.state !== 'flight' || !h || h.dir > 0 || G.cooldown > 0) return;
+  const m = G.mouse;
+  const ok = h.z < 0.25 && Math.hypot(h.x - m.x, h.y - m.y) < 0.42;
+  if (ok) {
+    G.held = { x: h.x, y: h.y, z: 0.02 }; G.hen = null; G.state = 'caught'; G.timer = 0.4; G.turn = 'me'; sndCatch();
+    if (G.mode === 'net') { G.localResolved = true; net.send({ t: 'catch' }); }
+    G.flash = 'Attrapée !'; G.flashT = 0.6; G.flashWho = 'me';
+  } else {
+    G.cooldown = 0.5;           // trop tôt : les mains se ferment dans le vide
+    beep(120, 0.1, 'square', 0.04);
+  }
+}
+
+function power(t0) {            // jauge qui oscille 0 → 1 → 0 …
+  const k = ((performance.now() - t0) / 700) % 2;
+  return k < 1 ? k : 2 - k;
+}
+
+const startX = () => clamp(G.mouse.x, -1, 1) * 0.8;
+
+function update(dt) {
+  G.cooldown = Math.max(0, G.cooldown - dt);
+  G.flashT = Math.max(0, G.flashT - dt);
+  G.time += dt;
+  G.oppPose = Math.max(0, G.oppPose - dt);
+  G.shake = Math.max(0, G.shake - dt);
+  const m = G.mouse;
+  m.vx *= Math.pow(0.02, dt);                         // amortit la vitesse de la souris
+  if (G.mode === 'net') G.oppX += (G.oppXt - G.oppX) * Math.min(1, dt * 8);   // l'adversaire glisse sur sa ligne
+
+  G.particles.forEach((p) => {
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 420 * dt; p.vx *= Math.pow(0.35, dt);
+    p.rot += p.vr * dt; p.life -= dt;
+  });
+  G.particles = G.particles.filter((p) => p.life > 0);
+  G.bounceFx.forEach((b) => (b.t -= dt));
+  G.bounceFx = G.bounceFx.filter((b) => b.t > 0);
+  if (G.splat) G.splat.t += dt;
+
+  if (G.state === 'serve') {
+    G.timer += dt;
+    if (G.mode === 'ai' && G.turn === 'opp' && G.timer > 0.7) aiThrow();
+    if (G.mode === 'net' && G.turn === 'opp' && G.pending) { launchNet(G.pending); G.pending = null; }
+  } else if (G.state === 'caught') {
+    G.timer -= dt;
+    if (G.timer <= 0) { G.state = 'serve'; G.timer = 0; }
+  } else if (G.state === 'goal') {
+    G.timer -= dt;
+    if (G.timer <= 0) {
+      if (matchOver()) return finish();
+      G.state = 'serve'; G.timer = 0; G.splat = null;
+    }
+  } else if (G.state === 'flight') {
+    const h = G.hen;
+    const waiting = G.mode === 'net' && h.dir > 0 && h.z >= 1;      // arrivée : on attend le verdict du défenseur
+    const hit = waiting ? null : step(h, dt);
+    if (hit) bounceFx(h, hit);
+    if (waiting) h.z = 1;
+
+    if (G.mode === 'net') {
+      if (h.dir < 0 && h.z <= 0) {                                   // je n'ai pas rattrapé : but encaissé
+        h.z = 0; G.localResolved = true; net.send({ t: 'miss' }); goal('opp');
+      }
+    } else if (h.dir > 0 && h.z >= 1) {
+      // l'IA tente de rattraper : plus c'est vite, tordu et rebondissant, plus c'est dur
+      const p = clamp(G.level.base - 0.25 * (h.speed - 0.7) - 0.2 * Math.min(1, Math.abs(h.spin)) - 0.05 * h.bounces, 0.1, 0.95);
+      if (Math.random() < p) {
+        G.held = { x: h.x, y: h.y, z: 1 }; G.hen = null; G.state = 'caught'; G.timer = 0.55; G.turn = 'opp'; G.oppPose = 0.5;
+        G.flash = 'Attrapée !'; G.flashT = 0.7; G.flashWho = 'opp'; sndCatch();
+      } else {
+        h.z = 1; goal('me');
+      }
+    } else if (h.dir < 0 && h.z <= 0) {
+      h.z = 0; goal('opp');
+    }
+  }
+}
+
+async function finish() {
+  G.state = 'over';
+  const won = G.me > G.opp;
+  $('overTitle').textContent = won ? '🏆 VICTOIRE !' : '😵 DÉFAITE…';
+  $('overScore').textContent = `${G.name} ${G.me} – ${G.opp} ${G.mode === 'net' ? G.oppName : LEVELS[G.levelIdx].name}`;
+  $('overMsg').textContent = G.mode === 'net' ? '' : 'Enregistrement du score…';
+  $('over').hidden = false;
+  won ? sndWin() : beep(100, 0.5, 'sawtooth', 0.08);
+  if (G.mode === 'net') return;
+  try {
+    const r = await fetch('api.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: G.name, me: G.me, opp: G.opp, level: G.levelIdx }),
+    });
+    $('overMsg').textContent = r.ok ? 'Score enregistré au classement.' : 'Score non enregistré.';
+  } catch { $('overMsg').textContent = 'Score non enregistré (serveur injoignable).'; }
+}
+
+// ---------- Rendu : DA "BD alternative" (traits noirs épais, grillage de poulailler, paille) ----------
+function proj(x, y, z) {
+  const s = 1 / (1 + 3 * z);
+  return { x: CX + x * HW * s, y: CY + y * HH * s, s };
+}
+
+function rng(seed) {                                  // générateur déterministe : décor identique à chaque partie
+  return () => { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+
+// Le tunnel est statique : on le dessine une seule fois dans un canvas hors écran.
+function buildTunnel() {
+  const o = document.createElement('canvas'); o.width = W; o.height = H;
+  const c = o.getContext('2d'), R = rng(7);
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  c.fillStyle = '#fbfbf8'; c.fillRect(0, 0, W, H);
+  const Z = (D) => (D - 1) / 3;                       // D = distance (1 → 4), pour un grillage uniforme en profondeur
+  const surf = {
+    left:  (D, v) => proj(-1, v, Z(D)),
+    right: (D, v) => proj(1, v, Z(D)),
+    ceil:  (D, v) => proj(v, -1, Z(D)),
+  };
+  // grillage : petits "Y" gris tracés sur les murs et le plafond
+  c.strokeStyle = '#b3b9be';
+  for (const k of ['left', 'right', 'ceil']) {
+    for (let D = 0.5; D < 4; D += 0.1) {
+      for (let v = -1.25; v < 1.25; v += 0.2) {
+        const d0 = D + (R() - 0.5) * 0.05, v0 = v + (R() - 0.5) * 0.08, th = R() * 6.28;
+        const p = (d, vv) => surf[k](d, vv);
+        const a = p(d0, v0);
+        const d1 = d0 + Math.cos(th) * 0.05, v1 = v0 + Math.sin(th) * 0.09;
+        const b = p(d1, v1);
+        const t2 = th + 0.55 + R() * 0.3, t3 = th - 0.55 - R() * 0.3;
+        const e = p(d1 + Math.cos(t2) * 0.035, v1 + Math.sin(t2) * 0.065);
+        const f = p(d1 + Math.cos(t3) * 0.035, v1 + Math.sin(t3) * 0.065);
+        c.lineWidth = Math.max(0.7, 2.1 / D);
+        c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.lineTo(e.x, e.y); c.moveTo(b.x, b.y); c.lineTo(f.x, f.y); c.stroke();
+      }
+    }
+  }
+  // sol : chemin de terre / paille beige aux bords irréguliers
+  const wf = (D) => 0.86 - 0.16 * (D - 1);
+  const pts = [];
+  for (let D = 0.5; D <= 4.01; D += 0.1) pts.push(proj(-wf(D) + (R() - 0.5) * 0.08, 1, Z(D)));
+  for (let D = 4; D >= 0.49; D -= 0.1) pts.push(proj(wf(D) + (R() - 0.5) * 0.08, 1, Z(D)));
+  c.fillStyle = '#c9bd93';
+  c.beginPath(); pts.forEach((p, i) => (i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y))); c.closePath(); c.fill();
+  // taches de terre, brins de paille
+  for (let i = 0; i < 26; i++) {
+    const D = 0.6 + R() * 3.3, x = (R() - 0.5) * 1.5 * wf(D), p = proj(x, 1, Z(D));
+    c.fillStyle = R() < 0.5 ? '#b3a678' : '#d9cfae';
+    c.beginPath(); c.ellipse(p.x, p.y, (30 + R() * 60) * p.s, (6 + R() * 12) * p.s, 0, 0, 7); c.fill();
+  }
+  c.strokeStyle = '#e6dcb8';
+  for (let i = 0; i < 60; i++) {
+    const D = 0.6 + R() * 3.3, x = (R() - 0.5) * 1.6 * wf(D), p = proj(x, 1, Z(D)), L = (10 + R() * 26) * p.s;
+    c.lineWidth = Math.max(1, 3 * p.s); c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(p.x + L, p.y - L * 0.15 * (R() - 0.5)); c.stroke();
+  }
+  // bouts de coquille / plumes blanches posés au sol
+  for (let i = 0; i < 7; i++) {
+    const D = 0.7 + R() * 2.6, x = (R() - 0.5) * 1.3 * wf(D), p = proj(x, 1, Z(D));
+    c.fillStyle = '#fff'; c.strokeStyle = '#888'; c.lineWidth = Math.max(1, 2 * p.s);
+    c.beginPath(); c.ellipse(p.x, p.y, 20 * p.s + 3, 7 * p.s + 1.5, (R() - 0.5) * 0.6, 0, 7); c.fill(); c.stroke();
+  }
+  // poutres du plafond (grises, doubles traits) et cadre en bois au fond
+  const grey = '#9aa0a6', beam = (sg) => {
+    const pt = (z, dx) => proj(sg * (1 - 0.58 * z) + dx, -1 + 0.38 * z, z);
+    const a0 = pt(-0.12, 0), a1 = pt(0.93, 0), b1 = pt(0.93, -sg * 0.09), b0 = pt(-0.12, -sg * 0.18);
+    c.fillStyle = '#fbfbf8'; c.strokeStyle = grey; c.lineWidth = 4;
+    c.beginPath(); c.moveTo(a0.x, a0.y); c.lineTo(a1.x, a1.y); c.lineTo(b1.x, b1.y); c.lineTo(b0.x, b0.y); c.closePath(); c.fill(); c.stroke();
+  };
+  beam(-1); beam(1);
+  const fx = 0.42, fy = -0.6, FZ = 0.93;
+  const tl = proj(-fx, fy, FZ), tr = proj(fx, fy, FZ), bl = proj(-fx, 1, FZ), br = proj(fx, 1, FZ);
+  c.fillStyle = '#fbfbf8'; c.strokeStyle = grey; c.lineWidth = 4;
+  c.fillRect(tl.x - 8, tl.y - 10, tr.x - tl.x + 16, 16); c.strokeRect(tl.x - 8, tl.y - 10, tr.x - tl.x + 16, 16);
+  [[tl, bl], [tr, br]].forEach(([t, b]) => {
+    c.fillRect(t.x - 9, t.y, 18, b.y - t.y); c.strokeRect(t.x - 9, t.y, 18, b.y - t.y);
+    c.beginPath(); c.arc(t.x, t.y + 6, 12, 0, 7); c.stroke();                   // nœud de la corde
+    c.beginPath(); c.moveTo(t.x - 9, t.y + 24); c.lineTo(t.x + 9, t.y + 36); c.stroke();
+  });
+  return o;
+}
+
+function drawTunnel() {
+  G.bg = G.bg || buildTunnel();
+  ctx.drawImage(G.bg, 0, 0);
+}
+
+// ----- dessins vectoriels -----
+function drawHand(c, x, y, size, closed = false, alpha = 1, flip = 1) {   // silhouette noire, comme dans l'original
+  c.save(); c.globalAlpha = alpha; c.translate(x, y); c.scale(size / 100 * flip, size / 100);
+  c.fillStyle = '#000'; c.strokeStyle = '#000'; c.lineCap = 'round';
+  if (closed) {
+    c.beginPath(); c.ellipse(0, 4, 42, 38, 0, 0, 7); c.fill();
+    for (let i = 0; i < 4; i++) { c.beginPath(); c.arc(-27 + i * 18, -30 + Math.abs(i - 1.5) * 4, 11, 0, 7); c.fill(); }
+    c.beginPath(); c.ellipse(-40, 12, 12, 22, 0.5, 0, 7); c.fill();
+  } else {
+    c.beginPath(); c.ellipse(0, 18, 34, 38, 0, 0, 7); c.fill();
+    const L = [50, 60, 56, 44];
+    for (let i = 0; i < 4; i++) {
+      const a = -0.34 + i * 0.22, x0 = -22 + i * 14;
+      c.lineWidth = 17; c.beginPath(); c.moveTo(x0, 4); c.lineTo(x0 + Math.sin(a) * L[i], 4 - Math.cos(a) * L[i]); c.stroke();
+    }
+    c.lineWidth = 19; c.beginPath(); c.moveTo(-26, 30); c.lineTo(-54, 2); c.stroke();
+  }
+  c.restore();
+}
+
+function drawHenArt(c, x, y, R, rot = 0, view = 'front', o = {}) {
+  const lw = Math.max(1.4, R * 0.05), spread = o.spread || 0, flap = o.flap ?? 0.5;
+  c.save(); c.globalAlpha = o.alpha ?? 1; c.translate(x, y); c.rotate(rot); c.scale(o.sx || 1, o.sy || 1);
+  c.lineJoin = 'round'; c.lineCap = 'round'; c.strokeStyle = '#000'; c.fillStyle = '#fff';
+  // pattes (derrière le corps)
+  for (const sg of [-1, 1]) {
+    const fx = sg * (0.3 + spread * 0.5) * R, fy = (0.88 + spread * 0.05) * R;
+    for (const [col, w] of [['#000', lw * 3.3], ['#ffa200', lw * 1.7]]) {
+      c.strokeStyle = col; c.lineWidth = w;
+      c.beginPath();
+      for (const a of [-0.65, 0, 0.65]) { const aa = a + sg * spread * 0.7; c.moveTo(fx, fy); c.lineTo(fx + Math.sin(aa) * 0.34 * R, fy + Math.cos(aa) * 0.3 * R); }
+      c.stroke();
+    }
+  }
+  c.strokeStyle = '#000'; c.lineWidth = lw;
+  // ailes : touffes festonnées, écartées quand la poule fonce sur l'écran
+  for (const sg of [-1, 1]) {
+    c.save(); c.translate(sg * 0.9 * R, -0.08 * R); c.rotate(sg * (0.35 + flap * 0.8 + spread * 0.4));
+    c.fillStyle = '#fff'; c.beginPath();
+    const W2 = (0.38 + spread * 0.25) * R;
+    c.ellipse(sg * W2 * 0.6, 0, W2, 0.2 * R, 0, 0, 7); c.fill(); c.stroke();
+    for (const k of [-1, 0, 1]) { c.beginPath(); c.ellipse(sg * (W2 * 1.35), k * 0.15 * R, 0.14 * R, 0.1 * R, 0, 0, 7); c.fill(); c.stroke(); }
+    c.restore();
+  }
+  // corps
+  c.fillStyle = '#fff'; c.beginPath(); c.ellipse(0, 0, R, 0.95 * R, 0, 0, 7); c.fill(); c.stroke();
+  // crête
+  c.beginPath(); c.moveTo(-0.2 * R, -0.88 * R); c.lineTo(-0.15 * R, -1.18 * R); c.lineTo(-0.03 * R, -0.96 * R);
+  c.lineTo(0.08 * R, -1.24 * R); c.lineTo(0.17 * R, -0.95 * R); c.lineTo(0.27 * R, -1.1 * R); c.lineTo(0.3 * R, -0.82 * R);
+  c.closePath(); c.fill(); c.stroke();
+  if (view === 'front') {
+    for (const ex of [-0.3 * R, 0.28 * R]) {
+      if (o.dizzy) {
+        c.fillStyle = '#000'; c.beginPath(); c.arc(ex, -0.38 * R, 0.15 * R, 0, 7); c.fill();
+        c.fillStyle = '#fff'; c.beginPath(); c.arc(ex, -0.38 * R, 0.1 * R, 0, 7); c.fill();
+        c.fillStyle = '#000'; c.beginPath(); c.arc(ex, -0.38 * R, 0.045 * R, 0, 7); c.fill();
+      } else {                                         // yeux ronds affolés
+        c.fillStyle = '#fff'; c.beginPath(); c.arc(ex, -0.4 * R, 0.13 * R, 0, 7); c.fill(); c.stroke();
+        c.fillStyle = '#000'; c.beginPath(); c.arc(ex, -0.4 * R, 0.04 * R, 0, 7); c.fill();
+      }
+    }
+    c.fillStyle = '#ffa200';
+    c.beginPath(); c.moveTo(-0.2 * R, -0.2 * R);
+    c.bezierCurveTo(-0.2 * R, -0.02 * R, -0.06 * R, 0.16 * R, 0, 0.16 * R);
+    c.bezierCurveTo(0.06 * R, 0.16 * R, 0.2 * R, -0.02 * R, 0.2 * R, -0.2 * R);
+    c.bezierCurveTo(0.1 * R, -0.28 * R, -0.1 * R, -0.28 * R, -0.2 * R, -0.2 * R);
+    c.fill(); c.stroke();
+    c.fillStyle = '#000'; c.beginPath(); c.arc(-0.05 * R, -0.12 * R, 0.018 * R, 0, 7); c.arc(0.05 * R, -0.12 * R, 0.018 * R, 0, 7); c.fill();
+  } else {                                             // de dos : plis des ailes et queue
+    c.beginPath(); c.arc(-0.4 * R, 0.15 * R, 0.5 * R, -0.4, 1.1); c.stroke();
+    c.beginPath(); c.arc(0.4 * R, 0.15 * R, 0.5 * R, Math.PI - 1.1, Math.PI + 0.4); c.stroke();
+    c.beginPath(); c.moveTo(-0.14 * R, 0.8 * R); c.lineTo(-0.05 * R, 1.08 * R); c.lineTo(0.03 * R, 0.86 * R);
+    c.lineTo(0.12 * R, 1.1 * R); c.lineTo(0.18 * R, 0.8 * R); c.fill(); c.stroke();
+  }
+  c.restore();
+}
+
+function drawChar(c, kind, x, y, h, raise = true, alpha = 1) {   // x,y = pieds ; h = hauteur
+  const lw = Math.max(1, h * 0.03);
+  const P = [
+    { skin: '#e9b48e', top: '#b5533c', bot: '#3a5fa0' },       // fermier
+    { skin: '#f4a6b7', top: '#e8c53a', bot: '#3a5fa0' },       // cochon
+    { skin: '#e3b08a', top: '#222',    bot: '#444' },          // punk
+    { skin: '#f0c9a8', top: '#8a5aa8', bot: '#8a5aa8' },       // mamie
+  ][kind];
+  c.save(); c.globalAlpha = alpha; c.lineJoin = 'round'; c.lineCap = 'round'; c.lineWidth = lw; c.strokeStyle = '#000';
+  const hy = y - 0.68 * h;                                       // centre de la tête
+  // jambes + chaussures
+  for (const sg of [-1, 1]) {
+    c.fillStyle = P.bot; c.beginPath(); c.roundRect(x + sg * 0.085 * h - 0.055 * h, y - 0.2 * h, 0.11 * h, 0.17 * h, 2); c.fill(); c.stroke();
+    c.fillStyle = '#222'; c.beginPath(); c.ellipse(x + sg * 0.09 * h + sg * 0.02 * h, y - 0.02 * h, 0.075 * h, 0.04 * h, 0, 0, 7); c.fill(); c.stroke();
+  }
+  // bras levés (ou le long du corps)
+  for (const sg of [-1, 1]) {
+    const hx = x + sg * (raise ? 0.32 : 0.25) * h, hyy = y - (raise ? 0.9 : 0.28) * h;
+    c.strokeStyle = '#000'; c.lineWidth = 0.085 * h; c.beginPath(); c.moveTo(x + sg * 0.17 * h, y - 0.5 * h); c.lineTo(hx, hyy); c.stroke();
+    c.strokeStyle = P.top; c.lineWidth = 0.06 * h; c.beginPath(); c.moveTo(x + sg * 0.17 * h, y - 0.5 * h); c.lineTo(hx, hyy); c.stroke();
+    c.strokeStyle = '#000'; c.lineWidth = lw; c.fillStyle = P.skin; c.beginPath(); c.arc(hx, hyy, 0.05 * h, 0, 7); c.fill(); c.stroke();
+  }
+  // buste
+  c.fillStyle = P.top; c.beginPath(); c.roundRect(x - 0.19 * h, y - 0.55 * h, 0.38 * h, 0.37 * h, 0.05 * h); c.fill(); c.stroke();
+  if (kind === 0) {                                              // salopette
+    c.fillStyle = P.bot; c.beginPath(); c.roundRect(x - 0.11 * h, y - 0.46 * h, 0.22 * h, 0.28 * h, 2); c.fill(); c.stroke();
+    c.beginPath(); c.moveTo(x - 0.11 * h, y - 0.46 * h); c.lineTo(x - 0.13 * h, y - 0.55 * h); c.moveTo(x + 0.11 * h, y - 0.46 * h); c.lineTo(x + 0.13 * h, y - 0.55 * h); c.stroke();
+  } else if (kind === 2) {                                       // veste cloutée
+    c.fillStyle = '#aaa';
+    for (let i = 0; i < 5; i++) { c.beginPath(); c.arc(x - 0.14 * h + i * 0.07 * h, y - 0.52 * h, 0.014 * h, 0, 7); c.fill(); }
+    c.beginPath(); c.moveTo(x, y - 0.55 * h); c.lineTo(x, y - 0.18 * h); c.stroke();
+  } else if (kind === 3) {                                       // tablier
+    c.fillStyle = '#fff'; c.beginPath(); c.roundRect(x - 0.12 * h, y - 0.42 * h, 0.24 * h, 0.24 * h, 3); c.fill(); c.stroke();
+  }
+  // tête
+  c.fillStyle = P.skin;
+  if (kind === 1) {                                              // oreilles de cochon
+    for (const sg of [-1, 1]) { c.beginPath(); c.moveTo(x + sg * 0.06 * h, hy - 0.11 * h); c.lineTo(x + sg * 0.17 * h, hy - 0.2 * h); c.lineTo(x + sg * 0.14 * h, hy - 0.04 * h); c.closePath(); c.fill(); c.stroke(); }
+  }
+  if (kind === 2) {                                              // crête verte
+    c.fillStyle = '#4cc04c';
+    for (let i = -2; i <= 2; i++) { c.beginPath(); c.moveTo(x + i * 0.04 * h - 0.025 * h, hy - 0.1 * h); c.lineTo(x + i * 0.04 * h, hy - 0.26 * h + Math.abs(i) * 0.03 * h); c.lineTo(x + i * 0.04 * h + 0.025 * h, hy - 0.1 * h); c.fill(); c.stroke(); }
+    c.fillStyle = P.skin;
+  }
+  c.beginPath(); c.arc(x, hy, 0.14 * h, 0, 7); c.fill(); c.stroke();
+  if (kind === 0) {                                              // casquette
+    c.fillStyle = '#6b7a3a'; c.beginPath(); c.arc(x, hy - 0.01 * h, 0.145 * h, Math.PI, 0); c.closePath(); c.fill(); c.stroke();
+    c.beginPath(); c.ellipse(x + 0.1 * h, hy - 0.01 * h, 0.1 * h, 0.025 * h, 0, 0, 7); c.fill(); c.stroke();
+  }
+  if (kind === 3) {                                              // chignon gris
+    c.fillStyle = '#c9c9c9'; c.beginPath(); c.arc(x, hy - 0.16 * h, 0.06 * h, 0, 7); c.fill(); c.stroke();
+    c.beginPath(); c.arc(x, hy - 0.01 * h, 0.145 * h, Math.PI * 1.05, Math.PI * 1.95); c.fill(); c.stroke();
+  }
+  // visage patibulaire
+  c.fillStyle = '#000';
+  for (const sg of [-1, 1]) { c.beginPath(); c.arc(x + sg * 0.05 * h, hy + 0.01 * h, 0.017 * h, 0, 7); c.fill(); }
+  c.lineWidth = lw * 1.2;
+  c.beginPath(); c.moveTo(x - 0.085 * h, hy - 0.035 * h); c.lineTo(x - 0.02 * h, hy - 0.01 * h); c.moveTo(x + 0.085 * h, hy - 0.035 * h); c.lineTo(x + 0.02 * h, hy - 0.01 * h); c.stroke();
+  if (kind === 1) {                                              // groin
+    c.fillStyle = '#e88aa0'; c.beginPath(); c.ellipse(x, hy + 0.06 * h, 0.065 * h, 0.045 * h, 0, 0, 7); c.fill(); c.stroke();
+    c.fillStyle = '#000'; c.beginPath(); c.arc(x - 0.02 * h, hy + 0.06 * h, 0.01 * h, 0, 7); c.arc(x + 0.02 * h, hy + 0.06 * h, 0.01 * h, 0, 7); c.fill();
+  } else {
+    c.beginPath(); c.moveTo(x - 0.04 * h, hy + 0.08 * h); c.lineTo(x + 0.04 * h, hy + 0.075 * h); c.stroke();
+    if (kind === 0) { c.fillStyle = '#3a2a1a'; c.beginPath(); c.ellipse(x, hy + 0.055 * h, 0.06 * h, 0.018 * h, 0, 0, 7); c.fill(); }   // moustache
+  }
+  if (kind === 3) {                                              // lunettes
+    c.lineWidth = lw; c.beginPath(); c.arc(x - 0.05 * h, hy + 0.01 * h, 0.036 * h, 0, 7); c.arc(x + 0.05 * h, hy + 0.01 * h, 0.036 * h, 0, 7); c.stroke();
+  }
+  c.restore();
+}
+
+// ----- scène -----
+const R_HEN = 100;                                     // rayon de la poule au premier plan
+
+function drawHenInFlight() {
+  const h = G.hen;
+  if (!h) return;
+  const p = proj(h.x, h.y, h.z), sh = proj(h.x, 1, h.z);
+  c2shadow(sh);
+  const front = h.dir < 0;                             // elle fonce vers nous : pleine face, ailes écartées
+  const flap = 0.5 + 0.5 * Math.sin(G.time * 16);
+  drawHenArt(ctx, p.x, p.y, R_HEN * p.s, Math.sin(h.rot) * 0.35, front ? 'front' : 'back', { spread: front ? 0.55 : 0, flap });
+}
+function c2shadow(sh) {
+  ctx.fillStyle = '#6a5d3a55';
+  ctx.beginPath(); ctx.ellipse(sh.x, sh.y, 70 * sh.s * 1.3, 14 * sh.s * 1.3, 0, 0, 7); ctx.fill();
+}
+
+// poule tenue dans deux mains (après un rattrapage ou en attente de lancer)
+function drawHeld(x, y, z, alpha = 1) {
+  const p = proj(x, y, z), R = R_HEN * p.s * 0.8;
+  drawHenArt(ctx, p.x, p.y, R, 0, z < 0.5 ? 'back' : 'front', { alpha, spread: 0.3 });
+  drawHand(ctx, p.x - R * 0.95, p.y + R * 0.25, R * 1.2, true, alpha, 1);
+  drawHand(ctx, p.x + R * 0.95, p.y + R * 0.25, R * 1.2, true, alpha, -1);
+}
+
+// trajectoire prévue (rebonds compris), pointillés orange dans le tunnel
+function drawPreview(hen) {
+  const c = { ...hen };
+  ctx.fillStyle = '#ff9a00'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
+  for (let i = 0; i < 400 && c.z < 1; i++) {
+    const hit = step(c, 1 / 120);
+    if (i % 6 === 0 || hit) {
+      const p = proj(c.x, c.y, c.z);
+      ctx.beginPath(); ctx.arc(p.x, p.y, (hit ? 7 : 4) * p.s * 1.4 + 1.5, 0, 7); ctx.fill(); ctx.stroke();
+    }
+  }
+}
+
+function burst(x, y, r, spikes, col, alpha) {
+  ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = col; ctx.strokeStyle = '#000'; ctx.lineWidth = 5; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (let i = 0; i < spikes * 2; i++) { const a = i * Math.PI / spikes, rr = i % 2 ? r * 0.62 : r; ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr * 0.8); }
+  ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+}
+
+// la poule s'écrase "contre la vitre" : aplatie, pattes écartées, étourdie
+function drawSplat() {
+  const s = G.splat;
+  if (!s) return;
+  const k = Math.min(1, s.t / 0.1), settle = Math.max(0, 1 - s.t / 0.45);      // impact instantané puis léger rebond
+  if (s.near) {
+    const x = clamp(s.x, 150, W - 150), y = clamp(s.y, 150, H - 130);
+    const a = clamp(1.25 - s.t * 0.55, 0.35, 1);
+    burst(x, y, 300 * k, 11, '#fff3b0', Math.min(1, 1.6 - s.t * 2.6) * 0.9);
+    // coulure sur la vitre
+    ctx.fillStyle = `rgba(245,240,215,${0.55 * a})`;
+    ctx.beginPath(); ctx.ellipse(x, y + 20, 330 * k, 250 * k, 0, 0, 7); ctx.fill();
+    drawHenArt(ctx, x, y, 240, 0, 'front', { sx: 1.25 + 0.35 * settle, sy: 0.72 - 0.25 * settle * k, dizzy: true, spread: 1, alpha: a });
+    ctx.save(); ctx.translate(CX + 250, 175); ctx.rotate(-0.12); ctx.globalAlpha = clamp(1.4 - s.t * 1.6, 0, 1);
+    ctx.font = '900 64px Impact, "Arial Black", sans-serif'; ctx.lineWidth = 10; ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#000'; ctx.fillStyle = '#ff4d2e'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.strokeText(s.word, 0, 0); ctx.fillText(s.word, 0, 0); ctx.restore();
+  } else {
+    burst(s.x, s.y, 80 * k, 9, '#fff3b0', Math.min(1, 1.6 - s.t * 2.6) * 0.9);
+    drawHenArt(ctx, s.x, s.y, 36, 0, 'front', { sx: 1.3, sy: 0.65, dizzy: true, spread: 1 });
+  }
+}
+
+function drawParticles() {
+  G.particles.forEach((p) => {                         // plumes blanches cernées de gris
+    ctx.save(); ctx.globalAlpha = clamp(p.life / 0.6, 0, 1);
+    ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = '#fff'; ctx.strokeStyle = '#666'; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.ellipse(0, 0, p.sz, p.sz * 0.3, 0, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  });
+  G.bounceFx.forEach((b) => {
+    ctx.strokeStyle = `rgba(40,40,40,${b.t / 0.3})`; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(b.x, b.y, (0.3 - b.t) * 220 * b.s + 6, 0, 7); ctx.stroke();
+  });
+}
+
+const FONT = 'Impact, "Arial Black", system-ui, sans-serif';
+function digits(x, y, n, align) {                      // score dans une case noire (comme l'original)
+  const w = 64, h = 42, x0 = align === 'right' ? x - w : x;
+  ctx.fillStyle = '#000'; ctx.fillRect(x0, y, w, h);
+  ctx.fillStyle = '#fff'; ctx.font = `bold 32px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(String(n).padStart(2, '0'), x0 + w / 2, y + h / 2 + 2);
+}
+function tag(x, y, text, align) {
+  ctx.font = `bold 26px ${FONT}`;
+  const w = ctx.measureText(text).width + 22, x0 = align === 'right' ? x - w : x;
+  ctx.fillStyle = '#d5121b'; ctx.fillRect(x0, y, w, 32);
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, x0 + w / 2, y + 17);
+}
+
+function drawActors() {
+  // adversaire au fond du couloir : glisse sur sa ligne comme un pantin de carton
+  const far = proj(G.oppX, 1, 0.93);
+  const up = G.oppPose > 0 || (G.state === 'flight' && G.hen && G.hen.dir > 0);
+  drawChar(ctx, G.oppKind, far.x, far.y, 560 * far.s, up);
+  if (G.state === 'serve' && G.turn === 'opp') drawHeld(G.oppX, 0.3, 0.93, 0.95);
+  if (G.state === 'serve' && G.turn === 'me') drawHeld(G.hold ? G.hold.sx : startX(), 0.6, 0.02);
+  if (G.state === 'caught' && G.held) drawHeld(G.held.x, G.held.y, G.held.z);
+
+}
+
+function drawHUD() {
+  // scores : étiquettes rouges + cases noires
+  tag(14, 12, 'YOU', 'left'); digits(14, 48, G.me, 'left');
+  ctx.fillStyle = '#333'; ctx.font = `bold 15px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(G.name.toUpperCase(), 84, 56);
+  tag(W - 14, 12, 'OPPONENT', 'right'); digits(W - 14, 48, G.opp, 'right');
+  ctx.textAlign = 'right'; ctx.fillStyle = '#333'; ctx.fillText((G.oppName || CHARS[G.oppKind]).toUpperCase(), W - 84, 56);
+  ctx.textAlign = 'left'; ctx.fillStyle = '#999'; ctx.font = '13px system-ui'; ctx.textBaseline = 'bottom';
+  ctx.fillText('premier à 4 (2 d\'écart) — 12 max', 12, H - 8);
+
+  // la main : curseur noir ; poing fermé après un clic raté
+  const m = G.mouse, cp = proj(m.x, m.y, 0), h = G.hen;
+  const defending = G.state === 'flight' && h && h.dir < 0;
+  if (G.hold) {
+    const pw = power(G.hold.t0), tgt = aimPoint();
+    drawPreview(makeHenAim(G.hold.sx, 0.6, tgt, flickSpin(), 0.7 + pw * 0.9));
+    // viseur : point visé sur le mur, le plafond, le sol ou le fond
+    const tp = proj(tgt.x, tgt.y, tgt.z);
+    ctx.strokeStyle = '#d5121b'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(tp.x, tp.y, 18 * tp.s + 7, 0, 7);
+    ctx.moveTo(tp.x - 26 * tp.s - 10, tp.y); ctx.lineTo(tp.x + 26 * tp.s + 10, tp.y);
+    ctx.moveTo(tp.x, tp.y - 26 * tp.s - 10); ctx.lineTo(tp.x, tp.y + 26 * tp.s + 10); ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.fillRect(CX - 120, H - 38, 240, 22);
+    ctx.fillStyle = '#ff9a00'; ctx.fillRect(CX - 120, H - 38, 240 * pw, 22);
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.strokeRect(CX - 120, H - 38, 240, 22);
+  } else if (defending || G.state === 'caught') {
+    drawHand(ctx, cp.x, cp.y, 150, G.cooldown > 0 || G.state === 'caught');
+  } else {
+    drawHand(ctx, cp.x, cp.y, 90, false, 0.85);
+  }
+
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'center'; ctx.font = `bold 22px ${FONT}`; ctx.fillStyle = '#222';
+  if (G.state === 'serve') {
+    ctx.fillText(G.turn === 'me'
+      ? (G.hold ? 'Vise un point, puis relâche (coup de poignet = effet)' : 'À toi ! Place-toi, puis clique et maintiens')
+      : 'L\'adversaire se prépare…', CX, H - 62);
+  } else if (G.state === 'flight' && G.hen.dir < 0) {
+    ctx.fillText('Clique au bon moment pour attraper !', CX, H - 62);
+  }
+  if (G.flashT > 0) {
+    ctx.save(); ctx.translate(CX, CY - 40);
+    const goalMsg = G.flash === 'GOAL !';
+    const k = 1 + (goalMsg && G.flashT > 1.6 ? (G.flashT - 1.6) * 3 : 0);
+    ctx.scale(k, k); ctx.rotate(goalMsg ? -0.06 : 0);
+    ctx.font = goalMsg ? `110px ${FONT}` : `60px ${FONT}`;
+    ctx.lineWidth = 14; ctx.strokeStyle = '#000'; ctx.lineJoin = 'round';
+    ctx.fillStyle = goalMsg ? (G.flashWho === 'me' ? '#ffb000' : '#e5252a') : '#2fbf4a';
+    ctx.strokeText(G.flash, 0, 0); ctx.fillText(G.flash, 0, 0);
+    ctx.restore();
+  }
+}
+
+function loop(now) {
+  if (!G) { looping = false; return; }
+  const dt = Math.min(0.05, (now - G.last) / 1000); G.last = now;
+  if (G.state !== 'over') update(dt);
+  if (!G) return;
+  ctx.save();
+  if (G.shake > 0) ctx.translate(rand(-1, 1) * G.shake * 30, rand(-1, 1) * G.shake * 30);
+  drawTunnel(); drawActors(); drawHenInFlight(); drawSplat(); drawParticles(); drawHUD();
+  ctx.restore();
+  requestAnimationFrame(loop);
+}
+
+// ---------- Entrées ----------
+function pointer(e) {
+  const r = cv.getBoundingClientRect();
+  const px = (e.clientX - r.left) * (W / r.width), py = (e.clientY - r.top) * (H / r.height);
+  const m = G.mouse, t = performance.now();
+  const nx = clamp((px - CX) / HW, -1, 1), ny = clamp((py - CY) / HH, -1, 1);
+  if (m.t) {
+    const inst = (nx - m.x) / Math.max(0.008, (t - m.t) / 1000);
+    m.vx = m.vx * 0.5 + inst * 0.5;
+  }
+  m.x = nx; m.y = ny; m.px = px; m.py = py; m.t = t;
+  m.hist.push({ t, px }); while (m.hist.length && t - m.hist[0].t > 300) m.hist.shift();
+}
+cv.addEventListener('pointermove', (e) => { if (G) pointer(e); });
+cv.addEventListener('pointerdown', (e) => {
+  if (!G) return;
+  pointer(e); cv.setPointerCapture(e.pointerId);
+  if (G.state === 'serve' && G.turn === 'me') {
+    G.hold = { t0: performance.now(), sx: startX() };      // le clic verrouille la position du joueur
+  } else tryCatch();
+});
+cv.addEventListener('pointerup', (e) => {
+  if (!G || !G.hold) return;
+  pointer(e);
+  const hd = G.hold, pw = clamp(power(hd.t0), 0.1, 1);
+  const spin = flickSpin(), tgt = aimPoint();
+  G.hold = null;
+  if (G.state === 'serve' && G.turn === 'me') playerThrow(pw, spin, tgt, hd.sx);
+});
+addEventListener('keydown', (e) => {
+  if (!G) return;
+  if (e.code === 'Space') { e.preventDefault(); tryCatch(); }
+  else if (e.code === 'Escape') { if (!document.fullscreenElement) $('btnQuit').click(); }
+  else if (e.code === 'KeyF') toggleFs();
+});
+
+// ---------- Multijoueur (WebSocket) ----------
+const net = {
+  ws: null, id: null, name: '', queued: false, inviteFrom: null, pingT: 0,
+  send(o) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(o)); },
+  url() {
+    if (window.CHICKEN_WS) return window.CHICKEN_WS;
+    return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.hostname + ':8081';
+  },
+  close() {
+    clearInterval(this.pingT);
+    if (this.ws) { this.ws.onclose = null; this.ws.close(); }
+    this.ws = null; this.id = null; this.queued = false;
+  },
+};
+const lobbyStatus = (t) => { $('lobbyStatus').textContent = t; };
+
+$('mp').onclick = openLobby;
+$('lobbyBack').onclick = () => { net.close(); $('lobby').hidden = true; $('invite').hidden = true; $('menu').hidden = false; loadBoard(); };
+$('auto').onclick = () => net.send({ t: net.queued ? 'cancel' : 'auto' });
+$('invYes').onclick = () => { if (net.inviteFrom) net.send({ t: 'accept', from: net.inviteFrom.id }); $('invite').hidden = true; net.inviteFrom = null; };
+$('invNo').onclick = () => { if (net.inviteFrom) net.send({ t: 'decline', from: net.inviteFrom.id }); $('invite').hidden = true; net.inviteFrom = null; };
+
+function openLobby() {
+  let name = $('pseudo').value.trim().slice(0, 15);
+  if (!name) name = 'Joueur' + Math.floor(Math.random() * 900 + 100);
+  $('pseudo').value = name;
+  localStorage.setItem('pc_pseudo', name); localStorage.setItem('pc_avatar', avatar);
+  $('menu').hidden = true; $('lobby').hidden = false;
+  $('players').innerHTML = ''; $('auto').disabled = true; $('auto').textContent = 'MATCH AUTOMATIQUE';
+  lobbyStatus('Connexion au serveur…');
+  net.close();
+  let opened = false;
+  const ws = net.ws = new WebSocket(net.url());
+  ws.onopen = () => {
+    opened = true;
+    net.send({ t: 'hello', name, kind: avatar });
+    net.pingT = setInterval(() => net.send({ t: 'ping' }), 25000);
+  };
+  ws.onmessage = (e) => { try { onNet(JSON.parse(e.data)); } catch {} };
+  ws.onclose = () => {
+    clearInterval(net.pingT); net.ws = null; net.id = null;
+    if (G && G.mode === 'net' && G.state !== 'over') {
+      G.state = 'over'; $('overTitle').textContent = '🔌 CONNEXION PERDUE';
+      $('overScore').textContent = ''; $('overMsg').textContent = 'Le serveur multijoueur ne répond plus.';
+      $('again').disabled = true; $('over').hidden = false;
+    } else if (G && G.mode === 'net') {
+      $('overMsg').textContent = 'Connexion au serveur perdue.'; $('again').disabled = true;
+    } else {
+      $('auto').disabled = true;
+      lobbyStatus(opened ? 'Déconnecté du serveur.' : 'Serveur multijoueur injoignable (port 8081 ?).');
+    }
+  };
+}
+
+function renderPlayers(list) {
+  const ul = $('players'); ul.innerHTML = '';
+  lobbyStatus(`Connecté en tant que « ${net.name} » — ${list.length} joueur${list.length > 1 ? 's' : ''} en ligne.`);
+  const label = { lobby: 'Disponible', queue: 'Cherche un match…', match: 'En match' };
+  list.forEach((p) => {
+    const li = document.createElement('li');
+    const c = document.createElement('canvas'); c.width = 28; c.height = 36;
+    drawChar(c.getContext('2d'), p.kind, 14, 35, 34, true, 1);
+    const n = document.createElement('b'); n.textContent = p.name + (p.id === net.id ? ' (toi)' : '');
+    const st = document.createElement('span'); st.className = 'st'; st.textContent = label[p.status] || '';
+    li.append(c, n, st);
+    if (p.id === net.id) li.classList.add('me');
+    else if (p.status === 'lobby') {
+      li.classList.add('free'); li.title = 'Défier ' + p.name;
+      li.onclick = () => net.send({ t: 'challenge', to: p.id });
+    }
+    ul.appendChild(li);
+  });
+}
+
+function onNet(m) {
+  switch (m.t) {
+    case 'welcome': net.id = m.id; net.name = m.name; $('pseudo').value = m.name; $('auto').disabled = false; break;
+    case 'lobby': renderPlayers(m.players); break;
+    case 'waiting': lobbyStatus(`Défi envoyé à ${m.name}… (20 s)`); break;
+    case 'declined': lobbyStatus(m.reason || 'Défi refusé.'); break;
+    case 'error': lobbyStatus(m.msg || 'Erreur.'); break;
+    case 'queued': net.queued = true; $('auto').textContent = 'ANNULER LA RECHERCHE'; lobbyStatus('Recherche d\'un adversaire…'); break;
+    case 'unqueued': net.queued = false; $('auto').textContent = 'MATCH AUTOMATIQUE'; break;
+    case 'invite':
+      net.inviteFrom = m.from;
+      $('inviteText').textContent = `${m.from.name} te défie !`;
+      $('invite').hidden = false; beep(660, 0.12, 'triangle', 0.1); setTimeout(() => beep(880, 0.15, 'triangle', 0.1), 130);
+      break;
+    case 'invite_cancel':
+      if (net.inviteFrom && net.inviteFrom.id === m.from) { $('invite').hidden = true; net.inviteFrom = null; }
+      break;
+    case 'match':
+      net.queued = false; $('auto').textContent = 'MATCH AUTOMATIQUE';
+      start({ opp: m.opp, serve: m.serve });
+      break;
+    case 'throw':
+      if (!G || G.mode !== 'net' || G.state === 'over') break;
+      G.rally = m.rally;
+      if (G.state === 'serve' && G.turn === 'opp') launchNet(m.hen); else G.pending = m.hen;   // en attendant la fin de l'animation
+      break;
+    case 'pos': if (G && G.mode === 'net') G.oppXt = -m.x; break;
+    case 'result': onResult(m); break;
+    case 'rematch_ask': if (G && G.state === 'over') $('overMsg').textContent = 'L\'adversaire veut une revanche !'; break;
+    case 'oppleft':
+      if (!G || G.mode !== 'net') break;
+      if (G.state !== 'over') {
+        G.state = 'over'; $('overTitle').textContent = '🏆 VICTOIRE PAR FORFAIT';
+        $('overScore').textContent = `${G.name} ${G.me} – ${G.opp} ${G.oppName}`; $('over').hidden = false; sndWin();
+      }
+      $('overMsg').textContent = 'L\'adversaire a quitté la partie.'; $('again').disabled = true;
+      break;
+  }
+}
+
+// Verdict du serveur. Le défenseur a déjà joué la scène en local (détection des collisions locale,
+// pour ne pas subir le lag) : dans ce cas on ne fait que resynchroniser les scores.
+function onResult(m) {
+  if (!G || G.mode !== 'net' || G.state === 'over') return;
+  const alreadyPlayed = m.role === 'defender' && G.localResolved;
+  if (!alreadyPlayed) {
+    if (m.kind === 'catch') {                          // l'adversaire a rattrapé ma poule
+      const h = G.hen;
+      G.held = { x: h ? h.x : 0, y: h ? h.y : 0, z: 1 };
+      G.hen = null; G.state = 'caught'; G.timer = 0.55; G.turn = 'opp'; G.oppPose = 0.5;
+      G.flash = 'Attrapée !'; G.flashT = 0.7; G.flashWho = 'opp'; sndCatch();
+    } else {
+      goal(m.by === 'you' ? 'me' : 'opp');
+    }
+  }
+  G.me = m.you; G.opp = m.opp;
+  G.turn = m.next === 'you' ? 'me' : 'opp';
+  G.localResolved = false;
+}
+
+function netRematch() {
+  net.send({ t: 'rematch' });
+  $('again').disabled = true; $('overMsg').textContent = 'En attente de l\'adversaire…';
+}
+
+// position du joueur envoyée ~10 fois/s pour que l'adversaire te voie glisser sur ta ligne
+setInterval(() => {
+  if (!G || G.mode !== 'net' || G.state === 'over') return;
+  const x = +(G.hold ? G.hold.sx : startX()).toFixed(2);
+  if (Math.abs(x - G.posX) > 0.02) { G.posX = x; net.send({ t: 'pos', x }); }
+}, 100);
+})();

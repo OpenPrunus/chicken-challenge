@@ -1,0 +1,44 @@
+/* DA "BD alternative" : fond blanc cassé, traits noirs épais, rouge et orange */
+:root { --bg:#f6f4ec; --panel:#fff; --ink:#111; --mut:#666; --acc:#ff9a00; --red:#d5121b; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font-family: system-ui, sans-serif; }
+#app { max-width: 820px; margin: 0 auto; padding: 12px 16px 40px; }
+h1 { text-align:center; margin:12px 0 18px; font:400 3rem Impact, "Arial Black", sans-serif; letter-spacing:2px; text-transform:uppercase; color:#111; text-shadow:3px 3px 0 var(--acc); }
+.panel { background:var(--panel); border:3px solid #111; border-radius:14px; padding:16px; box-shadow:6px 6px 0 #111; }
+label { display:block; margin-bottom:12px; color:var(--mut); font-weight:600; }
+input { display:block; width:100%; margin-top:4px; padding:10px; font-size:1rem; border-radius:8px; border:3px solid #111; background:#fff; color:var(--ink); }
+.label { color:var(--mut); margin:8px 0 6px; font-weight:600; }
+#avatars, #levels { display:flex; gap:8px; flex-wrap:wrap; }
+#avatars button { width:76px; height:92px; padding:6px; display:flex; align-items:flex-end; justify-content:center; }
+button { cursor:pointer; border:3px solid #111; background:#fff; color:var(--ink); border-radius:10px; padding:8px 14px; font-size:1rem; font-weight:700; }
+button:hover { background:#fff3d6; }
+button.sel { background:var(--acc); box-shadow:3px 3px 0 #111; }
+button.big { display:block; width:100%; margin:16px 0 8px; padding:14px; font:400 1.6rem Impact, "Arial Black", sans-serif; letter-spacing:2px; background:var(--red); color:#fff; box-shadow:4px 4px 0 #111; }
+button.big:hover { background:#e8242d; }
+details { color:var(--mut); margin:8px 0; }
+h2 { font:400 1.3rem Impact, "Arial Black", sans-serif; letter-spacing:1px; margin:16px 0 6px; }
+#board { margin:0; padding-left:1.5rem; color:var(--mut); }
+#board b { color:var(--ink); }
+body.playing { overflow:hidden; background:#fbfbf8; }
+#game { position:fixed; inset:0; z-index:10; background:#fbfbf8; display:flex; align-items:center; justify-content:center; }
+canvas { width:min(100vw, calc(100vh * 4 / 3)); height:auto; max-height:100vh; aspect-ratio:4/3; display:block; background:#fbfbf8; cursor:none; touch-action:none; }
+#bar { position:absolute; bottom:10px; right:10px; display:flex; gap:8px; z-index:12; }
+#bar button { padding:4px 10px; font-size:.9rem; }
+#over { position:absolute; inset:0; margin:auto; width:min(90%,420px); height:fit-content; text-align:center; z-index:11; }
+#over button { margin:4px; }
+#over button.big { margin:12px 0 8px; }
+[hidden] { display:none !important; }
+#avatars canvas { width:auto; max-height:none; aspect-ratio:auto; background:transparent; cursor:pointer; }
+button.big.blue { background:#1e5fd1; }
+button.big.blue:hover { background:#2f74ea; }
+#players { list-style:none; margin:8px 0 14px; padding:0; display:flex; flex-direction:column; gap:6px; }
+#players li { display:flex; align-items:center; gap:10px; border:3px solid #111; border-radius:10px; padding:4px 10px; background:#fff; }
+#players li.free { cursor:pointer; }
+#players li.free:hover { background:#fff3d6; }
+#players li.me { background:#f0f0f0; }
+#players li .st { margin-left:auto; font-size:.85rem; color:var(--mut); }
+#players li canvas { width:28px; height:36px; max-height:none; aspect-ratio:auto; background:transparent; cursor:inherit; }
+#invite { position:fixed; z-index:30; left:50%; top:24px; transform:translateX(-50%); width:min(92%,380px); text-align:center; }
+#invite p { font-weight:700; margin:4px 0; }
+button:disabled { opacity:.35; cursor:not-allowed; box-shadow:none; }
+button:disabled:hover { background:inherit; }

@@ -1,0 +1,24 @@
+services:
+  chicken:                       # site web (PHP 8.5 + Apache)
+    build: .
+    ports:
+      - "8080:80"
+    environment:
+      # URL WebSocket vue par le navigateur ; vide = même hôte, port 8081
+      CHICKEN_WS: ""
+    volumes:
+      - scores:/var/www/html/data
+    restart: unless-stopped
+
+  chicken-ws:                    # serveur multijoueur (même image, autre commande)
+    build: .
+    command: ["php", "/opt/chicken/server.php"]
+    ports:
+      - "8081:8081"
+    environment:
+      WS_PORT: "8081"
+      WS_ALLOWED_ORIGINS: ""     # ex. "https://jeu.exemple.fr" pour restreindre
+    restart: unless-stopped
+
+volumes:
+  scores:
