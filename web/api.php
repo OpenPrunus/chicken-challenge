@@ -2,6 +2,8 @@
 // API du classement : GET = top 20, POST = enregistrer un match terminé.
 require __DIR__ . '/lib/scores.php';
 
+ini_set('display_errors', '0');          // jamais d'avertissement PHP (ni de chemin interne) dans la réponse
+
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
@@ -26,8 +28,12 @@ $opp  = (int)($in['opp'] ?? -1);
 
 if (!chicken_valid_score($name, $me, $opp)) { http_response_code(422); echo '{"error":"invalid"}'; exit; }
 
-$fp = fopen($file, 'c+');
-flock($fp, LOCK_EX);
+$fp = @fopen($file, 'c+');
+if ($fp === false || !flock($fp, LOCK_EX)) {      // dossier ou fichier non inscriptible : on le dit, on ne prétend pas avoir enregistré
+    http_response_code(500);
+    echo '{"error":"storage"}';
+    exit;
+}
 $d = json_decode((string)stream_get_contents($fp), true);
 $d = chicken_apply_score(is_array($d) ? $d : [], $name, $me, $opp);
 

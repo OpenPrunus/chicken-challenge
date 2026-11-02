@@ -17,8 +17,8 @@ jobs:
     name: JavaScript (unit tests)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: npm run lint
@@ -32,7 +32,7 @@ jobs:
       matrix:
         php: ['8.3', '8.4', '8.5']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
@@ -49,8 +49,8 @@ jobs:
     name: Multiplayer server (integration tests)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - uses: shivammathur/setup-php@v2
@@ -65,7 +65,7 @@ jobs:
     name: Docker image (smoke test)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build the image
         run: docker build -t chicken-challenge:ci .
       - name: Start the website with a bind-mounted data directory (as in production)
@@ -85,15 +85,25 @@ jobs:
           test "$(code $B/)" = 200
           curl -s $B/ | grep -q 'wss:\\/\\/example.test\\/ws'
           for f in engine.js i18n.js game.js style.css; do test "$(code $B/assets/$f)" = 200; done
-          # the scores directory must never be served, even though the bind mount hides its .htaccess
-          echo '[]' | sudo tee "$RUNNER_TEMP/data/scores.json" > /dev/null
-          test "$(code $B/data/scores.json)" = 403
-          # the API validates and persists scores on the host
+          # the API validates scores and persists them on the host (scores.json is created by PHP, as in production)
           test "$(code -X POST -H 'Content-Type: application/json' -d '{"name":"ci","me":4,"opp":1}' $B/api.php)" = 200
           test "$(code -X POST -H 'Content-Type: application/json' -d '{"name":"ci","me":4,"opp":3}' $B/api.php)" = 422
           test "$(code -X POST -d 'not json' $B/api.php)" = 400
+          test "$(code -X DELETE $B/api.php)" = 405
           curl -s $B/api.php | grep -q '"name":"ci"'
           sudo grep -q '"name":"ci"' "$RUNNER_TEMP/data/scores.json"
+          # the scores directory must never be served, even though the bind mount hides its .htaccess
+          test "$(code $B/data/scores.json)" = 403
+          test "$(code $B/data/)" = 403
+          # if the file is not writable, the API must fail loudly (500, JSON) and not leak PHP warnings or paths
+          sudo chown root:root "$RUNNER_TEMP/data/scores.json"
+          sudo chmod 644 "$RUNNER_TEMP/data/scores.json"
+          out="$(curl -s -w ' HTTP=%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"name":"ci","me":4,"opp":1}' $B/api.php)"
+          echo "$out"
+          echo "$out" | grep -q '{"error":"storage"} HTTP=500'
+          ! echo "$out" | grep -qi 'warning\|fatal\|/var/www'
+          # reads keep working
+          curl -s $B/api.php | grep -q '"name":"ci"'
           # the WebSocket server is up and enforces its origin list
           docker logs ws | grep -q 'listening'
           H='Connection: Upgrade'; U='Upgrade: websocket'; V='Sec-WebSocket-Version: 13'; K='Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=='
