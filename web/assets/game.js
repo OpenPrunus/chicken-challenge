@@ -221,7 +221,7 @@ function start(netInfo) {
 function makeHen(dir, x0, y0, a, b, spin, speed) {
   const T = 1 / speed;                                // durée approx. du vol
   return {
-    z: dir > 0 ? 0 : 1, dir, x: x0, y: y0, speed, spin, rot: 0, bounces: 0,
+    z: dir > 0 ? 0 : 1, dir, x: x0, y: y0, speed, spin, speed0: speed, spin0: spin, rot: 0, bounces: 0,
     vx: a * 3.2 * speed,
     vy: -y0 / T - 0.5 * GRAV * T + b * 2.8 * speed,
   };
@@ -265,7 +265,7 @@ function aimPoint() {
 function makeHenAim(x0, y0, tgt, spin, speed) {
   const T = tgt.z / speed;
   return {
-    z: 0, dir: 1, x: x0, y: y0, speed, spin, rot: 0, bounces: 0,
+    z: 0, dir: 1, x: x0, y: y0, speed, spin, speed0: speed, spin0: spin, rot: 0, bounces: 0,
     vx: (tgt.x - x0) / T,
     vy: (tgt.y - y0) / T - 0.5 * GRAV * T,
   };
@@ -296,7 +296,7 @@ function playerThrow(power, spin, tgt, x0) {
 
 // Poule envoyée par l'adversaire : perspective inversée (gauche/droite miroir, elle part du fond).
 function launchNet(hen) {
-  G.hen = { z: 1, dir: -1, x: -hen.x, y: hen.y, vx: -hen.vx, vy: hen.vy, spin: -hen.spin, speed: hen.speed, rot: 0, bounces: 0 };
+  G.hen = { z: 1, dir: -1, x: -hen.x, y: hen.y, vx: -hen.vx, vy: hen.vy, spin: -hen.spin, speed: hen.speed, speed0: hen.speed, spin0: hen.spin, rot: 0, bounces: 0 };
   G.oppXt = G.oppX = -hen.x;
   G.state = 'flight'; G.oppPose = 0.25; G.localResolved = false; sndThrow();
 }
@@ -340,11 +340,25 @@ function matchOver() {
   return me === 12 || opp === 12 || (Math.max(me, opp) >= 4 && Math.abs(me - opp) >= 2);
 }
 
+// Pondération : plus la poule est "folle" (rebonds, effet, vitesse de départ), plus la zone de capture est
+// tolérante. Une poule droite reste exigeante ; une poule chaotique reste rattrapable sans être gratuite.
+function chaos(h) {
+  const c = 0.25 * h.bounces
+          + 0.30 * Math.min(1, Math.abs(h.spin0 ?? h.spin) / 2)
+          + 0.30 * Math.max(0, ((h.speed0 ?? h.speed) - 0.9) / 0.7);
+  return clamp(c, 0, 1);
+}
+function catchReach(h) {
+  const c = chaos(h);
+  return { r: 0.42 + 0.22 * c, zmax: 0.25 + 0.08 * c, c };   // rayon de la main (unités tunnel) et fenêtre de timing
+}
+
 function tryCatch() {
   const h = G.hen;
   if (!G || G.state !== 'flight' || !h || h.dir > 0 || G.cooldown > 0) return;
   const m = G.mouse;
-  const ok = h.z < 0.25 && Math.hypot(h.x - m.x, h.y - m.y) < 0.42;
+  const reach = catchReach(h);
+  const ok = h.z < reach.zmax && Math.hypot(h.x - m.x, h.y - m.y) < reach.r;
   if (ok) {
     G.held = { x: h.x, y: h.y, z: 0.02 }; G.hen = null; G.state = 'caught'; G.timer = 0.4; G.turn = 'me'; sndCatch();
     if (G.mode === 'net') { G.localResolved = true; net.send({ t: 'catch' }); }
@@ -807,7 +821,7 @@ function drawHUD() {
     ctx.fillStyle = '#ff9a00'; ctx.fillRect(CX - 120, H - 38, 240 * pw, 22);
     ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.strokeRect(CX - 120, H - 38, 240, 22);
   } else if (defending || G.state === 'caught') {
-    drawHand(ctx, cp.x, cp.y, 150, G.cooldown > 0 || G.state === 'caught');
+    drawHand(ctx, cp.x, cp.y, 150 * (1 + 0.3 * (h ? chaos(h) : 0)), G.cooldown > 0 || G.state === 'caught');
   } else {
     drawHand(ctx, cp.x, cp.y, 90, false, 0.85);
   }
