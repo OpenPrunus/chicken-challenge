@@ -86,6 +86,33 @@ describe('traduction', () => {
   });
 });
 
+describe('ordinaux', () => {
+  test('anglais : 1st 2nd 3rd 4th 11th 12th 13th 21st 22nd 23rd 101st 111th 112th', () => {
+    const { I18N } = load({ languages: ['en-US'] });
+    const expect = { 1: 'st', 2: 'nd', 3: 'rd', 4: 'th', 10: 'th', 11: 'th', 12: 'th', 13: 'th', 20: 'th', 21: 'st', 22: 'nd', 23: 'rd', 24: 'th', 100: 'th', 101: 'st', 111: 'th', 112: 'th', 113: 'th', 122: 'nd' };
+    for (const [n, suffix] of Object.entries(expect)) assert.equal(I18N.ordinal(+n), suffix, `${n}`);
+  });
+  test('français : 1er puis 2e, 3e, 11e…', () => {
+    const { I18N } = load({ languages: ['fr-FR'] });
+    assert.equal(I18N.ordinal(1), 'er');
+    for (const n of [2, 3, 4, 11, 21, 100]) assert.equal(I18N.ordinal(n), 'e', `${n}`);
+  });
+  test('le message de classement de fin de match est lisible dans les deux langues', () => {
+    for (const [lang, rx] of [['en-US', /Ranking: 1017 pts \(\+17\) — 2nd of 12/], ['fr-FR', /Classement : 1017 pts \(\+17\) — 2e sur 12/]]) {
+      const { I18N } = load({ languages: [lang] });
+      const msg = I18N.t('over.rated', { rating: 1017, delta: '+17', rank: 2, ord: I18N.ordinal(2), total: 12 });
+      assert.match(msg, rx);
+    }
+  });
+  test('les textes des classements existent dans les deux langues avec les bonnes variables', () => {
+    const { dict } = load({ languages: ['en-US'] }).I18N;
+    for (const l of ['fr', 'en']) {
+      for (const v of ['{r}', '{w}', '{l}', '{gf}', '{ga}']) assert.ok(dict[l]['board.row.multi'].includes(v), `${l} board.row.multi ${v}`);
+      assert.ok(dict[l]['board.multi.title'] && dict[l]['board.empty.multi'] && dict[l]['board.ai'] && dict[l]['over.unranked']);
+    }
+  });
+});
+
 describe('textes mobiles', () => {
   const { dict, t } = load({ languages: ['en-US'] }).I18N;
   test('les indications tactiles existent en FR et EN et diffèrent de celles de la souris', () => {

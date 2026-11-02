@@ -10,6 +10,10 @@ header('Cache-Control: no-store');
 $file = __DIR__ . '/data/scores.json';
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    if (($_GET['board'] ?? '') === 'multi') {          // classement multijoueur, écrit par le serveur de jeu
+        echo json_encode(chicken_rank_multi(chicken_load_multi(__DIR__ . '/data/multi_scores.json')), JSON_UNESCAPED_UNICODE);
+        exit;
+    }
     echo json_encode(chicken_rank(chicken_load($file)));
     exit;
 }

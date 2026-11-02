@@ -40,6 +40,10 @@ $c = filemtime(__DIR__ . '/assets/style.css');
       <p data-i18n-html="rules.touch"></p>
     </details>
     <h2 data-i18n="board.title">Leaderboard</h2>
+    <div id="boardTabs" role="tablist">
+      <button data-board="ai" class="sel" data-i18n="board.ai">Vs the AI</button>
+      <button data-board="multi" data-i18n="board.multi">Multiplayer</button>
+    </div>
     <ol id="board"><li>…</li></ol>
   </section>
 
@@ -49,6 +53,8 @@ $c = filemtime(__DIR__ . '/assets/style.css');
     <button id="auto" class="big" data-i18n="lobby.auto">AUTOMATIC MATCH</button>
     <div class="label" data-i18n="lobby.players">Connected players</div>
     <ul id="players"></ul>
+    <h2 data-i18n="board.multi.title">Multiplayer leaderboard</h2>
+    <ol id="boardLobby" class="board"><li>…</li></ol>
     <button id="lobbyBack" data-i18n="lobby.back">← Back</button>
   </section>
 

@@ -15,5 +15,7 @@ RUN mkdir -p /var/www/html/data && \
     [ -f /var/www/html/data/scores.json ] || echo '[]' > /var/www/html/data/scores.json; \
     chown -R www-data:www-data /var/www/html/data
 
+# Le serveur multijoueur écrit son classement (multi_scores.json) dans le même dossier que le site
+ENV CHICKEN_DATA_DIR=/var/www/html/data
 VOLUME /var/www/html/data
 EXPOSE 80 8081

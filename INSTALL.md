@@ -31,12 +31,13 @@ docker compose down -v                # stop AND delete the scores
 
 ### Where are the scores stored?
 
-In the named Docker volume `chicken-challenge_scores`, mounted on `/var/www/html/data` (file
-`scores.json`). It survives image rebuilds.
+In the named Docker volume `chicken-challenge_scores`, mounted on `/var/www/html/data`: `scores.json` (games against
+the AI, written by the website) and `multi_scores.json` (multiplayer Elo leaderboard, written by the **game
+server**, which is why the `chicken-ws` service mounts the same volume). It survives image rebuilds.
 
 ```bash
 # backup
-docker compose cp chicken:/var/www/html/data/scores.json ./scores-backup.json
+docker compose cp chicken:/var/www/html/data ./scores-backup
 # reset
 docker compose exec chicken sh -c 'echo "[]" > /var/www/html/data/scores.json'
 ```
@@ -71,6 +72,10 @@ the web server user (`www-data` on Debian) and must not be downloadable:
 - Apache: the provided `web/data/.htaccess` denies access, with `AllowOverride All`.
 - nginx: add `location /data/ { deny all; }`.
 
+The multiplayer server needs **write access** to the data directory (`web/data/` by default, or `CHICKEN_DATA_DIR`),
+run it as the same user as the web server (`www-data`) so the website can read what it writes. If the directory is
+not writable the server logs a warning and still runs, but results are not saved.
+
 To keep the multiplayer server running permanently, use for example a systemd unit:
 
 ```ini
@@ -96,6 +101,7 @@ WantedBy=multi-user.target
 | `CHICKEN_WS` | website (PHP) | WebSocket URL used by the **browser** | empty = same host, port 8081 |
 | `WS_PORT` | WS server | listening port | `8081` |
 | `WS_ALLOWED_ORIGINS` | WS server | allowed origins, comma-separated | empty = all |
+| `CHICKEN_DATA_DIR` | WS server | directory where `multi_scores.json` is written (must be writable, and the same one the website reads) | `web/data` (set to `/var/www/html/data` in the Docker image) |
 
 With Docker, set these variables in `docker-compose.yml`.
 

@@ -29,9 +29,10 @@ const pending = new Map();
 
 async function waitFor(fn, ms, what) {
   const t0 = Date.now();
+  let last;
   for (;;) {
-    try { const v = await fn(); if (v) return v; } catch {}
-    if (Date.now() - t0 > ms) throw new Error('délai dépassé : ' + what);
+    try { last = await fn(); if (last) return last; } catch (e) { last = 'erreur : ' + e.message; }
+    if (Date.now() - t0 > ms) throw new Error(`délai dépassé : ${what} (dernière valeur : ${JSON.stringify(last)})`);
     await sleep(100);
   }
 }
@@ -79,9 +80,10 @@ async function ev(expr) {
 async function open(device, query = '?e2e=1') {
   await call('Emulation.setDeviceMetricsOverride', { width: device.w, height: device.h, deviceScaleFactor: device.dpr || 2, mobile: !!device.touch });
   await call('Emulation.setTouchEmulationEnabled', device.touch ? { enabled: true, maxTouchPoints: 5 } : { enabled: false });
+  // état propre : on vide le stockage AVANT le chargement (la page lit ses réglages au démarrage)
+  await call('Storage.clearDataForOrigin', { origin: new URL(BASE).origin, storageTypes: 'local_storage' });
   await call('Page.navigate', { url: `${BASE}/${query}` });
   await waitFor(() => ev('document.readyState === "complete" && !!document.getElementById("play")'), 10000, 'page chargée');
-  await ev('localStorage.clear()');
 }
 const PHONE_PORTRAIT = { w: 390, h: 844, touch: true };
 const PHONE_LANDSCAPE = { w: 844, h: 390, touch: true };
@@ -326,6 +328,138 @@ describe('commandes au doigt', () => {
     await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: b.x, y: b.y, button: 'left', clickCount: 1 });
     await sleep(80);
     assert.equal((await state()).state, 'flight');
+  });
+});
+
+// --------------------------------------------------------------------------------------------------- classements
+/** Remplace fetch() par un faux serveur de classements (avant le chargement de la page). */
+async function withBoardMock(mock, fn) {
+  const { identifier } = await call('Page.addScriptToEvaluateOnNewDocument', { source: `
+    (() => {
+      const mock = ${JSON.stringify(mock)}; window.__calls = [];
+      const real = window.fetch.bind(window);
+      window.fetch = (url, opts) => {
+        const u = String(url);
+        if (!u.startsWith('api.php')) return real(url, opts);
+        window.__calls.push(u);
+        const multi = u.includes('board=multi');
+        const status = (multi ? mock.multiStatus : mock.aiStatus) || 200;
+        return Promise.resolve(new Response(JSON.stringify(multi ? mock.multi : mock.ai), { status, headers: { 'Content-Type': 'application/json' } }));
+      };
+    })();` });
+  try { await fn(); } finally { await call('Page.removeScriptToEvaluateOnNewDocument', { identifier }); }
+}
+const boardTexts = (sel) => ev(`[...document.querySelectorAll(${JSON.stringify(sel)} + ' li')].map((l) => l.textContent)`);
+const AI_ROWS = [{ name: 'Zoé', wins: 3, played: 5, gf: 20, ga: 12 }];
+const MULTI_ROWS = [
+  { name: 'Alice', rating: 1034, played: 9, wins: 7, losses: 2, gf: 30, ga: 12 },
+  { name: 'Bob', rating: 1012, played: 4, wins: 2, losses: 2, gf: 14, ga: 15 },
+  { name: '<img src=x onerror="window.__xss=1">', rating: 990, played: 3, wins: 1, losses: 2, gf: 8, ga: 12 },
+];
+
+describe('classements (menu)', () => {
+  test('deux onglets : contre l\'IA par défaut, puis multijoueur (Elo) dans l\'ordre du serveur', async () => {
+    await withBoardMock({ ai: AI_ROWS, multi: MULTI_ROWS }, async () => {
+      await open(DESKTOP, '?e2e=1');
+      await ev('document.querySelector("#lang [data-lang=en]").click()');
+      await waitFor(async () => (await boardTexts('#board')).length === 1, 3000, 'classement IA');
+      assert.match((await boardTexts('#board'))[0], /^Zoé — 3 W \/ 5 games \(20-12\)$/);
+      assert.equal(await ev('document.querySelector("#boardTabs .sel").dataset.board'), 'ai');
+
+      await ev('document.querySelector("#boardTabs [data-board=multi]").click()');
+      await waitFor(async () => (await boardTexts('#board')).length === 3, 3000, 'classement multijoueur');
+      const rows = await boardTexts('#board');
+      assert.equal(rows[0], 'Alice — 1034 pts · 7 W / 2 L (30-12)');
+      assert.equal(rows[1], 'Bob — 1012 pts · 2 W / 2 L (14-15)');
+      assert.equal(await ev('document.querySelector("#boardTabs .sel").dataset.board'), 'multi');
+      assert.ok((await ev('window.__calls')).includes('api.php?board=multi'), 'appelle la bonne route');
+    });
+  });
+
+  test('l\'onglet choisi est mémorisé au rechargement', async () => {
+    await withBoardMock({ ai: AI_ROWS, multi: MULTI_ROWS }, async () => {
+      await open(DESKTOP, '?e2e=1');
+      await ev('document.querySelector("#boardTabs [data-board=multi]").click()');
+      await sleep(150);
+      await call('Page.navigate', { url: `${BASE}/?e2e=1` });
+      await waitFor(() => ev('document.readyState === "complete"'), 5000, 'rechargement');
+      await waitFor(async () => (await boardTexts('#board')).length === 3, 3000, 'multi rechargé');
+      assert.equal(await ev('document.querySelector("#boardTabs .sel").dataset.board'), 'multi');
+    });
+  });
+
+  test('un pseudo contenant du HTML est affiché tel quel, jamais exécuté', async () => {
+    await withBoardMock({ ai: AI_ROWS, multi: MULTI_ROWS }, async () => {
+      await open(DESKTOP, '?e2e=1');
+      await ev('document.querySelector("#boardTabs [data-board=multi]").click()');
+      await waitFor(async () => (await boardTexts('#board')).length === 3, 3000, 'multi');
+      await sleep(200);
+      assert.equal(await ev('window.__xss'), undefined, 'aucun script exécuté');
+      assert.equal(await ev('document.querySelectorAll("#board img").length'), 0, 'aucune balise injectée');
+      assert.ok((await boardTexts('#board'))[2].startsWith('<img src=x onerror='), 'le texte brut est visible');
+    });
+  });
+
+  test('classement vide et erreur serveur : messages clairs, dans la langue choisie', async () => {
+    await withBoardMock({ ai: [], multi: [] }, async () => {
+      await open(DESKTOP, '?e2e=1');
+      await ev('document.querySelector("#lang [data-lang=en]").click()');
+      await waitFor(async () => /Nobody has played yet/.test((await boardTexts('#board'))[0] || ''), 3000, 'IA vide');
+      await ev('document.querySelector("#boardTabs [data-board=multi]").click()');
+      await waitFor(async () => /No ranked game yet/.test((await boardTexts('#board'))[0] || ''), 3000, 'multi vide');
+      await ev('document.querySelector("#lang [data-lang=fr]").click()');
+      await waitFor(async () => /Aucune partie classée/.test((await boardTexts('#board'))[0] || ''), 3000, 'multi vide (fr)');
+    });
+    await withBoardMock({ ai: [], multi: [], multiStatus: 500 }, async () => {
+      await open(DESKTOP, '?e2e=1');
+      await ev('document.querySelector("#lang [data-lang=en]").click()');
+      await ev('document.querySelector("#boardTabs [data-board=multi]").click()');
+      await waitFor(async () => /Leaderboard unavailable/.test((await boardTexts('#board'))[0] || ''), 3000, 'erreur 500');
+    });
+  });
+
+  test('le changement de langue retraduit les lignes du classement multijoueur', async () => {
+    await withBoardMock({ ai: AI_ROWS, multi: MULTI_ROWS }, async () => {
+      await open(DESKTOP, '?e2e=1');
+      await ev('document.querySelector("#lang [data-lang=en]").click()');
+      await ev('document.querySelector("#boardTabs [data-board=multi]").click()');
+      await waitFor(async () => (await boardTexts('#board')).length === 3, 3000, 'multi');
+      assert.match((await boardTexts('#board'))[0], /7 W \/ 2 L/);
+      await ev('document.querySelector("#lang [data-lang=fr]").click()');
+      await waitFor(async () => /7 V \/ 2 D/.test((await boardTexts('#board'))[0] || ''), 3000, 'retraduit');
+    });
+  });
+
+  test('sur téléphone, les onglets et les lignes tiennent dans l\'écran même avec de longs pseudos', async () => {
+    const long = [{ name: 'W'.repeat(15), rating: 1500, played: 99, wins: 88, losses: 11, gf: 999, ga: 888 }];
+    await withBoardMock({ ai: AI_ROWS, multi: long }, async () => {
+      await open(PHONE_PORTRAIT);
+      await ev('document.querySelector("#boardTabs [data-board=multi]").click()');
+      await waitFor(async () => (await boardTexts('#board')).length === 1, 3000, 'multi');
+      await ev('document.querySelector("#board").scrollIntoView()');
+      const o = await ev('({ sw: document.documentElement.scrollWidth, iw: innerWidth })');
+      assert.ok(o.sw <= o.iw, `défilement horizontal (${o.sw} > ${o.iw})`);
+      for (const b of await ev('[...document.querySelectorAll("#boardTabs button")].map((e) => e.getBoundingClientRect().height)')) assert.ok(b >= 43.5, `onglet ${b}px`);
+    });
+  });
+});
+
+describe('fin de match multijoueur : message de classement', () => {
+  const setNet = (g) => ev(`(() => { const G = window.__chickenDebug(); Object.assign(G, ${JSON.stringify(g)}); return window.__chickenDebug.overMsg(); })()`);
+  test('victoire classée (anglais) et ordinaux', async () => {
+    await startAiGame(DESKTOP);
+    await ev('document.querySelector("#lang [data-lang=en]")?.click()');
+    const base = { mode: 'net', ranked: true };
+    assert.match(await setNet({ ...base, rated: { rating: 1017, delta: 17, rank: 1, total: 12 } }), /Ranking: 1017 pts \(\+17\) — 1st of 12/);
+    assert.match(await setNet({ ...base, rated: { rating: 1003, delta: -9, rank: 2, total: 12 } }), /Ranking: 1003 pts \(-9\) — 2nd of 12/);
+    assert.match(await setNet({ ...base, rated: { rating: 990, delta: -13, rank: 3, total: 4 } }), /— 3rd of 4/);
+    assert.match(await setNet({ ...base, rated: { rating: 990, delta: -13, rank: 11, total: 40 } }), /— 11th of 40/);
+  });
+  test('partie non classée, ou pas encore de résultat', async () => {
+    await startAiGame(DESKTOP);
+    assert.match(await setNet({ mode: 'net', ranked: false, rated: null }), /Unranked game|Partie non classée/);
+    assert.equal(await setNet({ mode: 'net', ranked: true, rated: null }), '', 'rien tant que le serveur n\'a pas répondu');
+    assert.equal(await setNet({ mode: 'ai', ranked: false, rated: null }), '', 'jamais en mode IA');
   });
 });
 

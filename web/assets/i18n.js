@@ -23,6 +23,8 @@ const DICT = {
       'automatique. Premier à 4 points avec 2 d\'écart, 12 maximum.',
     'board.title': 'Classement', 'board.empty': 'Personne n\'a encore joué.', 'board.error': 'Classement indisponible.',
     'board.row': ' — {w} V / {p} parties ({gf}-{ga})',
+    'board.ai': 'Contre l\'IA', 'board.multi': 'Multijoueur', 'board.multi.title': 'Classement multijoueur',
+    'board.row.multi': ' — {r} pts · {w} V / {l} D ({gf}-{ga})', 'board.empty.multi': 'Aucune partie classée pour l\'instant.',
 
     'lobby.title': 'Salon d\'attente', 'lobby.connecting': 'Connexion au serveur…',
     'lobby.players': 'Joueurs connectés — clique sur un pseudo pour le défier', 'lobby.back': '← Retour',
@@ -56,6 +58,7 @@ const DICT = {
     'over.lostMsg2': 'Connexion au serveur perdue.',
     'over.forfeit': '🏆 VICTOIRE PAR FORFAIT', 'over.oppLeft': 'L\'adversaire a quitté la partie.',
     'over.rematchAsk': 'L\'adversaire veut une revanche !', 'over.waitRematch': 'En attente de l\'adversaire…',
+    'over.rated': 'Classement : {rating} pts ({delta}) — {rank}{ord} sur {total}', 'over.unranked': 'Partie non classée.',
   },
   en: {
     'menu.nick': 'Nickname', 'menu.nick.ph': 'Your nickname', 'menu.char': 'Choose your character', 'menu.level': 'Level',
@@ -77,6 +80,8 @@ const DICT = {
       'automatic match. First to 4 points with a 2-point lead, 12 maximum.',
     'board.title': 'Leaderboard', 'board.empty': 'Nobody has played yet.', 'board.error': 'Leaderboard unavailable.',
     'board.row': ' — {w} W / {p} games ({gf}-{ga})',
+    'board.ai': 'Vs the AI', 'board.multi': 'Multiplayer', 'board.multi.title': 'Multiplayer leaderboard',
+    'board.row.multi': ' — {r} pts · {w} W / {l} L ({gf}-{ga})', 'board.empty.multi': 'No ranked game yet.',
 
     'lobby.title': 'Lobby', 'lobby.connecting': 'Connecting to the server…',
     'lobby.players': 'Connected players — click a nickname to challenge them', 'lobby.back': '← Back',
@@ -110,6 +115,7 @@ const DICT = {
     'over.lostMsg2': 'Connection to the server lost.',
     'over.forfeit': '🏆 WIN BY FORFEIT', 'over.oppLeft': 'Your opponent left the game.',
     'over.rematchAsk': 'Your opponent wants a rematch!', 'over.waitRematch': 'Waiting for your opponent…',
+    'over.rated': 'Ranking: {rating} pts ({delta}) — {rank}{ord} of {total}', 'over.unranked': 'Unranked game.',
   },
 };
 
@@ -131,6 +137,14 @@ function t(key, vars) {
 }
 const tn = (key, n, vars) => t(key + (n === 1 ? '_one' : '_other'), { n, ...vars });
 
+// Suffixe d'ordinal : 1er, 2e, 3e… en français ; 1st, 2nd, 3rd, 4th, 11th, 12th, 21st… en anglais.
+function ordinal(n) {
+  if (lang === 'fr') return n === 1 ? 'er' : 'e';
+  const m100 = n % 100;
+  if (m100 >= 11 && m100 <= 13) return 'th';
+  return { 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th';
+}
+
 function apply() {
   document.documentElement.lang = lang;
   document.querySelectorAll('[data-i18n]').forEach((e) => { e.textContent = t(e.dataset.i18n); });
@@ -148,5 +162,5 @@ function setLang(l) {
 document.querySelectorAll('#lang button').forEach((b) => { b.onclick = () => setLang(b.dataset.lang); });
 apply();
 
-window.I18N = { t, tn, setLang, apply, get lang() { return lang; }, onChange: (f) => listeners.push(f), dict: DICT };
+window.I18N = { t, tn, ordinal, setLang, apply, get lang() { return lang; }, onChange: (f) => listeners.push(f), dict: DICT };
 })();

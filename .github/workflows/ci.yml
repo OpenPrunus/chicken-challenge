@@ -92,8 +92,8 @@ jobs:
           sudo chown 33:33 "$RUNNER_TEMP/data"
           docker run -d --name web -p 8080:80 -v "$RUNNER_TEMP/data:/var/www/html/data" \
             -e CHICKEN_WS=wss://example.test/ws chicken-challenge:ci
-          docker run -d --name ws -p 8081:8081 -e WS_ALLOWED_ORIGINS=https://example.test \
-            chicken-challenge:ci php /opt/chicken/server.php
+          docker run -d --name ws -p 8081:8081 --user 33:33 -v "$RUNNER_TEMP/data:/var/www/html/data" \
+            -e WS_ALLOWED_ORIGINS=https://example.test chicken-challenge:ci php /opt/chicken/server.php
           for i in $(seq 1 30); do curl -fs http://localhost:8080/ >/dev/null && break; sleep 1; done
       - name: Smoke test
         run: |
@@ -122,6 +122,17 @@ jobs:
           ! echo "$out" | grep -qi 'warning\|fatal\|/var/www'
           # reads keep working
           curl -s $B/api.php | grep -q '"name":"ci"'
+          # the multiplayer server shares the data directory (as www-data, like in production)
+          docker logs ws | grep -q 'Ranking: 0 player(s) loaded from /var/www/html/data/multi_scores.json'
+          ! docker logs ws | grep -q WARNING
+          # multiplayer leaderboard: written by the game server, served by the API without any token hash
+          test "$(curl -s "$B/api.php?board=multi")" = '[]'
+          printf '%s' '{"version":1,"players":{"alice":{"name":"Alice","th":"secrethash","rating":1020,"played":1,"wins":1,"losses":0,"gf":4,"ga":0}}}' \
+            | sudo tee "$RUNNER_TEMP/data/multi_scores.json" > /dev/null
+          sudo chmod 644 "$RUNNER_TEMP/data/multi_scores.json"
+          curl -s "$B/api.php?board=multi" | grep -q '"rating":1020'
+          ! curl -s "$B/api.php?board=multi" | grep -q secrethash
+          test "$(code $B/data/multi_scores.json)" = 403
           # the WebSocket server is up and enforces its origin list
           docker logs ws | grep -q 'listening'
           H='Connection: Upgrade'; U='Upgrade: websocket'; V='Sec-WebSocket-Version: 13'; K='Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=='

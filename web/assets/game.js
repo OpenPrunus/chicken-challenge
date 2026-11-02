@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const { t, tn } = window.I18N;            // traductions FR / EN (assets/i18n.js)
+const { t, tn, ordinal } = window.I18N;            // traductions FR / EN (assets/i18n.js)
 const NCHARS = 4;                         // noms : clés char0..char3
 const LEVELS = [                          // noms : clés level0..level2
   { base: 0.60, throwSpeed: [0.7, 1.1] },
@@ -48,21 +48,41 @@ function refreshMenu() {
 }
 refreshMenu();
 
-async function loadBoard() {
-  try {
-    const r = await (await fetch('api.php')).json();
-    const ol = $('board');
-    ol.innerHTML = '';
-    if (!r.length) ol.innerHTML = `<li>${t('board.empty')}</li>`;
-    r.forEach((p) => {
-      const li = document.createElement('li');
-      const b = document.createElement('b');
-      b.textContent = p.name;                       // textContent : pas d'injection
-      li.append(b, t('board.row', { w: p.wins, p: p.played, gf: p.gf, ga: p.ga }));
-      ol.appendChild(li);
-    });
-  } catch { $('board').innerHTML = `<li>${t('board.error')}</li>`; }
+// Classements : « contre l'IA » (scores envoyés par le navigateur) et « multijoueur » (calculé par le serveur de jeu, Elo).
+let boardKind = (() => { try { return localStorage.getItem('cc_board') === 'multi' ? 'multi' : 'ai'; } catch { return 'ai'; } })();
+const sameName = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
+
+function renderBoard(ol, rows, kind, me) {
+  ol.innerHTML = '';
+  if (!rows.length) { ol.innerHTML = `<li>${t(kind === 'multi' ? 'board.empty.multi' : 'board.empty')}</li>`; return; }
+  rows.forEach((p) => {
+    const li = document.createElement('li');
+    const b = document.createElement('b');
+    b.textContent = p.name;                          // textContent : pas d'injection
+    li.append(b, kind === 'multi'
+      ? t('board.row.multi', { r: p.rating, w: p.wins, l: p.losses, gf: p.gf, ga: p.ga })
+      : t('board.row', { w: p.wins, p: p.played, gf: p.gf, ga: p.ga }));
+    if (me && sameName(p.name, me)) li.classList.add('me');
+    ol.appendChild(li);
+  });
 }
+async function fetchBoard(kind) {
+  const r = await fetch(kind === 'multi' ? 'api.php?board=multi' : 'api.php');
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+async function loadBoard() {
+  document.querySelectorAll('#boardTabs button').forEach((b) => b.classList.toggle('sel', b.dataset.board === boardKind));
+  try { renderBoard($('board'), await fetchBoard(boardKind), boardKind, $('pseudo').value.trim()); }
+  catch { $('board').innerHTML = `<li>${t('board.error')}</li>`; }
+}
+async function loadLobbyBoard() {
+  try { renderBoard($('boardLobby'), await fetchBoard('multi'), 'multi', net.name); }
+  catch { $('boardLobby').innerHTML = `<li>${t('board.error')}</li>`; }
+}
+document.querySelectorAll('#boardTabs button').forEach((b) => {
+  b.onclick = () => { boardKind = b.dataset.board; try { localStorage.setItem('cc_board', boardKind); } catch {} loadBoard(); };
+});
 loadBoard();
 
 $('play').onclick = () => { mobileEnter(); start(); };
@@ -83,7 +103,7 @@ function leaveGame() {                                // en multijoueur on retou
     G = null;
     if (document.fullscreenElement) document.exitFullscreen();
     document.body.classList.remove('playing');
-    $('game').hidden = true; $('lobby').hidden = false;
+    $('game').hidden = true; $('lobby').hidden = false; loadLobbyBoard();
   } else quit();
 }
 function quit() {
@@ -203,7 +223,7 @@ function start(netInfo) {
   G = {
     name, level: LEVELS[level], levelIdx: level,
     me: 0, opp: 0,
-    mode: netInfo ? 'net' : 'ai',
+    mode: netInfo ? 'net' : 'ai', ranked: netInfo ? netInfo.ranked !== false : false, rated: null,
     myKind: avatar,
     oppKind: netInfo ? netInfo.opp.kind : others[Math.floor(Math.random() * others.length)],
     oppName: netInfo ? netInfo.opp.name : null,
@@ -361,7 +381,7 @@ async function finish() {
   const won = G.me > G.opp;
   $('overTitle').textContent = won ? t('over.win') : t('over.lose');
   $('overScore').textContent = `${G.name} ${G.me} – ${G.opp} ${G.mode === 'net' ? G.oppName : t('level' + G.levelIdx)}`;
-  $('overMsg').textContent = G.mode === 'net' ? '' : t('over.saving');
+  $('overMsg').textContent = G.mode === 'net' ? netOverMsg() : t('over.saving');
   $('over').hidden = false;
   won ? sndWin() : beep(100, 0.5, 'sawtooth', 0.08);
   if (G.mode === 'net') return;
@@ -852,6 +872,16 @@ addEventListener('keydown', (e) => {
 });
 
 // ---------- Multijoueur (WebSocket) ----------
+// Jeton secret propre au navigateur : il identifie le joueur auprès du serveur (le serveur n'en garde que le hash)
+// pour réserver son pseudo dans le classement. Perdu si l'on efface les données du site.
+function playerToken() {
+  const gen = () => [...crypto.getRandomValues(new Uint8Array(16))].map((x) => x.toString(16).padStart(2, '0')).join('');
+  try {
+    let tk = localStorage.getItem('cc_token');
+    if (!/^[a-f0-9]{32}$/.test(tk || '')) { tk = gen(); localStorage.setItem('cc_token', tk); }
+    return tk;
+  } catch { return gen(); }                          // stockage indisponible : jeton valable pour cette session seulement
+}
 const net = {
   ws: null, id: null, name: '', queued: false, inviteFrom: null, pingT: 0,
   send(o) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(o)); },
@@ -880,6 +910,16 @@ $('auto').onclick = () => net.send({ t: net.queued ? 'cancel' : 'auto' });
 $('invYes').onclick = () => { if (net.inviteFrom) net.send({ t: 'accept', from: net.inviteFrom.id }); $('invite').hidden = true; net.inviteFrom = null; };
 $('invNo').onclick = () => { if (net.inviteFrom) net.send({ t: 'decline', from: net.inviteFrom.id }); $('invite').hidden = true; net.inviteFrom = null; };
 
+// Variation de classement affichée à la fin d'un match multijoueur (envoyée par le serveur après le dernier point).
+function netOverMsg() {
+  if (!G || G.mode !== 'net') return '';
+  if (G.rated) {
+    const r = G.rated;
+    return t('over.rated', { rating: r.rating, delta: (r.delta > 0 ? '+' : '') + r.delta, rank: r.rank, ord: ordinal(r.rank), total: r.total });
+  }
+  return G.ranked === false ? t('over.unranked') : '';
+}
+
 function renderInvite() {
   if (net.inviteFrom) $('inviteText').textContent = t('invite.text', { name: net.inviteFrom.name });
 }
@@ -887,7 +927,7 @@ function renderInvite() {
 // changement de langue à chaud : tout ce qui est construit en JS est re-rendu
 window.I18N.onChange(() => {
   [...$('avatars').children].forEach((b, i) => { b.title = t('char' + i); });
-  loadBoard(); renderStatus(); renderInvite(); autoLabel();
+  loadBoard(); loadLobbyBoard(); renderStatus(); renderInvite(); autoLabel(); if (G) $('overMsg').textContent = G.mode === 'net' && G.state === 'over' ? netOverMsg() : $('overMsg').textContent;
   if (net.players) renderPlayers(net.players, true);
   if (G) $('again').textContent = G.mode === 'net' ? t('over.rematch') : t('over.again');
 });
@@ -905,7 +945,7 @@ function openLobby() {
   const ws = net.ws = new WebSocket(net.url());
   ws.onopen = () => {
     opened = true;
-    net.send({ t: 'hello', name, kind: avatar });
+    net.send({ t: 'hello', name, kind: avatar, token: playerToken() });
     net.pingT = setInterval(() => net.send({ t: 'ping' }), 25000);
   };
   ws.onmessage = (e) => { try { onNet(JSON.parse(e.data)); } catch {} };
@@ -946,7 +986,7 @@ function renderPlayers(list, keepStatus) {
 
 function onNet(m) {
   switch (m.t) {
-    case 'welcome': net.id = m.id; net.name = m.name; $('pseudo').value = m.name; $('auto').disabled = false; break;
+    case 'welcome': net.id = m.id; net.name = m.name; net.ranked = m.ranked; $('pseudo').value = m.name; $('auto').disabled = false; loadLobbyBoard(); break;
     case 'lobby': renderPlayers(m.players); break;
     case 'waiting': lobbyStatus('lobby.waiting', { name: m.name }); break;
     case 'declined': srvText(m, 'srv.refused'); break;
@@ -963,7 +1003,7 @@ function onNet(m) {
       break;
     case 'match':
       net.queued = false; autoLabel();
-      start({ opp: m.opp, serve: m.serve });
+      start({ opp: m.opp, serve: m.serve, ranked: m.ranked });
       break;
     case 'throw':
       if (!G || G.mode !== 'net' || G.state === 'over') break;
@@ -972,6 +1012,7 @@ function onNet(m) {
       break;
     case 'pos': if (G && G.mode === 'net') G.oppXt = -m.x; break;
     case 'result': onResult(m); break;
+    case 'rated': if (G && G.mode === 'net') { G.rated = m; if (G.state === 'over') $('overMsg').textContent = netOverMsg(); } break;
     case 'rematch_ask': if (G && G.state === 'over') $('overMsg').textContent = t('over.rematchAsk'); break;
     case 'oppleft':
       if (!G || G.mode !== 'net') break;
@@ -979,7 +1020,7 @@ function onNet(m) {
         G.state = 'over'; $('overTitle').textContent = t('over.forfeit');
         $('overScore').textContent = `${G.name} ${G.me} – ${G.opp} ${G.oppName}`; $('over').hidden = false; sndWin();
       }
-      $('overMsg').textContent = t('over.oppLeft'); $('again').disabled = true;
+      $('overMsg').textContent = [t('over.oppLeft'), netOverMsg()].filter(Boolean).join(' '); $('again').disabled = true;
       break;
   }
 }
@@ -1017,5 +1058,5 @@ setInterval(() => {
 }, 100);
 
 // Tests de navigateur (tests/browser) : expose l'état du jeu uniquement si l'URL contient ?e2e.
-if (new URLSearchParams(location.search).has('e2e')) window.__chickenDebug = Object.assign(() => G, { aim: () => aimPoint() });
+if (new URLSearchParams(location.search).has('e2e')) window.__chickenDebug = Object.assign(() => G, { aim: () => aimPoint(), overMsg: () => netOverMsg() });
 })();

@@ -15,6 +15,8 @@ services:
     command: ["php", "/opt/chicken/server.php"]
     ports:
       - "8081:8081"
+    volumes:
+      - scores:/var/www/html/data   # classement multijoueur (écrit ici, lu par le site)
     environment:
       WS_PORT: "8081"
       WS_ALLOWED_ORIGINS: ""     # ex. "https://jeu.exemple.fr" pour restreindre

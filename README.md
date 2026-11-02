@@ -28,6 +28,10 @@ Whoever fails to catch it takes the bird right in the face: **GOAL!**
 - **Versus the AI**: 3 difficulty levels (Schoolkid, Cop, Chief) and a local leaderboard.
 - **Online multiplayer**: lobby, challenge a player by clicking their nickname, or automatic
   matchmaking; one-click rematch.
+- **Multiplayer leaderboard (Elo)**: results are recorded by the game server, which is the only one that knows the
+  real score. Everyone starts at 1000 points; beating a stronger player is worth more. Leaving a match that is
+  already underway counts as a defeat. The menu has one leaderboard tab for games against the AI and one for
+  multiplayer, and the lobby shows the multiplayer top; the end-of-match screen shows your rating change and rank.
 - Effects: chicken flattened against the screen, feathers, screen shake, synthesized chicken
   sound effects.
 - Fullscreen (`F` key), quit with `Esc`.
@@ -80,7 +84,7 @@ web/                 website, served by Apache (PHP 8.5)
   api.php            leaderboard for games against the AI (JSON)
   assets/            engine.js (pure game logic), game.js (rendering, input, networking), i18n.js (FR/EN), style.css
   lib/scores.php     leaderboard rules (pure functions)
-  data/              scores.json (created on first run)
+  data/              scores.json (games vs the AI) and multi_scores.json (multiplayer, written by the game server)
 server/server.php    WebSocket multiplayer server in plain PHP, outside the web root (pure helpers in lib.php)
 tests/               unit tests (js/, php/) and integration tests (integration/)
 .github/workflows/   CI pipeline
@@ -99,10 +103,18 @@ docker-compose.yml   two services: website (8080) and WebSocket server (8081)
   reports `catch` or `miss`. The server keeps the scores and the turn order, clamps every value it
   receives and enforces timeouts (an idle player loses the point).
 
+### Ranked identity (no accounts)
+
+Each browser generates a random secret token (kept in `localStorage`) and sends it when joining; the server keeps
+only its SHA-256 hash. The first player to finish a ranked match under a nickname **reserves** it: nobody else can
+use it, even when its owner is offline. Players without a valid token (other clients, invalid tokens) are guests and
+their matches are not ranked, and two tabs of the same browser cannot rank against each other.
+
 ### Known limitations
 
 - The catch verdict comes from the defending client, so a modified client could cheat.
-- Online games are not recorded in the leaderboard.
+- The leaderboard has no real accounts: clearing the site data loses the token (and the reserved nickname), and two
+  different browsers owned by the same person can still farm rating from each other.
 - No automatic reconnection in the middle of a match.
 
 ## Controls

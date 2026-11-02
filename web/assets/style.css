@@ -82,3 +82,10 @@ html { -webkit-text-size-adjust:100%; }
   #bar button { min-width:48px; font-size:1rem; }
   #invite { top:calc(12px + env(safe-area-inset-top)); }
 }
+
+#boardTabs { display:flex; gap:8px; margin:0 0 8px; }
+#boardTabs button { padding:6px 12px; font-size:.95rem; }
+#board li, #boardLobby li { margin:2px 0; }
+#board li.me, #boardLobby li.me { background:#fff3d6; border-radius:6px; }
+#boardLobby { margin:0 0 12px; padding-left:1.5rem; color:var(--mut); }
+#boardLobby b { color:var(--ink); }

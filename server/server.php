@@ -29,6 +29,12 @@ if (!$srv) { fwrite(STDERR, "Cannot listen on port $port: $errstr\n"); exit(1); 
 stream_set_blocking($srv, false);
 fwrite(STDOUT, "Chicken WS listening on :$port\n");
 
+// Classement multijoueur : table chargée au démarrage, réécrite après chaque match classé.
+$dataDir = rtrim((string)(getenv('CHICKEN_DATA_DIR') ?: dirname(__DIR__) . '/web/data'), '/');
+$rankFile = $dataDir . '/multi_scores.json';
+$ranking = loadPlayers($rankFile);
+fwrite(STDOUT, 'Ranking: ' . count($ranking) . " player(s) loaded from $rankFile" . (is_writable($dataDir) ? '' : ' (WARNING: directory not writable, results will not be saved)') . "\n");
+
 $clients = [];   // id => état client
 $byRes = [];     // (int)resource => id
 $matches = [];   // id de match => état
@@ -91,6 +97,11 @@ function startMatch(int $a, int $b, ?int $first = null): void {
         'a' => $a, 'b' => $b, 'score' => [$a => 0, $b => 0],
         'turn' => $first, 'state' => 'serve', 't' => microtime(true),
         'thrower' => null, 'rally' => 0, 'rematch' => [],
+        // classé si les deux joueurs ont un jeton, différent, et que leurs pseudos ne sont pas réservés par un autre
+        'ranked' => $clients[$a]['th'] !== '' && $clients[$b]['th'] !== '' && $clients[$a]['th'] !== $clients[$b]['th']
+            && !nameReservedByOther($GLOBALS['ranking'], $clients[$a]['name'], $clients[$a]['th'])
+            && !nameReservedByOther($GLOBALS['ranking'], $clients[$b]['name'], $clients[$b]['th']),
+        'recorded' => false,
     ];
     foreach ([$a, $b] as $id) {
         $clients[$id]['match'] = $mid;
@@ -99,7 +110,7 @@ function startMatch(int $a, int $b, ?int $first = null): void {
     }
     foreach ($pending as $to => $list) { unset($pending[$to][$a], $pending[$to][$b]); }
     foreach ([[$a, $b], [$b, $a]] as [$me, $opp]) {
-        send($me, ['t' => 'match', 'opp' => ['name' => $clients[$opp]['name'], 'kind' => $clients[$opp]['kind']], 'serve' => $first === $me]);
+        send($me, ['t' => 'match', 'opp' => ['name' => $clients[$opp]['name'], 'kind' => $clients[$opp]['kind']], 'serve' => $first === $me, 'ranked' => $matches[$mid]['ranked']]);
     }
     logm("Match #$mid : {$clients[$a]['name']} vs {$clients[$b]['name']}");
     broadcastLobby();
@@ -114,10 +125,33 @@ function leaveMatch(int $id): void {
     if (isset($clients[$id]) && $clients[$id]['status'] === 'match') $clients[$id]['status'] = 'lobby';
     if ($m) {
         $o = otherOf($m, $id);
+        // partir en cours de match = défaite (sinon on pourrait fuir une partie perdue) ; à 0-0, rien n'est enregistré
+        if ($m['state'] !== 'over' && array_sum($m['score']) >= 1 && isset($clients[$o])) recordMatchResult($mid, $o, $id);
         if (isset($clients[$o])) { $clients[$o]['match'] = null; $clients[$o]['status'] = 'lobby'; send($o, ['t' => 'oppleft']); }
         unset($matches[$mid]);
     }
     broadcastLobby();
+}
+
+/** Enregistre le résultat d'un match classé (une seule fois) et prévient les joueurs encore connectés. */
+function recordMatchResult(int $mid, int $winner, int $loser): void {
+    global $matches, $clients, $ranking, $rankFile;
+    $m = &$matches[$mid];
+    if ($m['recorded'] || !$m['ranked']) return;
+    $m['recorded'] = true;
+    $res = recordRankedMatch(
+        $ranking,
+        [$clients[$winner]['name'], $clients[$winner]['th']],
+        [$clients[$loser]['name'], $clients[$loser]['th']],
+        $m['score'][$winner], $m['score'][$loser]
+    );
+    if ($res === null) return;
+    $ranking = $res['players'];
+    if (!savePlayers($rankFile, $ranking)) logm("ERROR: cannot write $rankFile");
+    foreach ([[$winner, 'winner', 'win'], [$loser, 'loser', 'loss']] as [$id, $k, $outcome]) {
+        send($id, ['t' => 'rated', 'result' => $outcome] + $res[$k] + ['total' => count($ranking)]);
+    }
+    logm("Ranked: {$clients[$winner]['name']} {$res['winner']['delta']} ({$res['winner']['rating']}) / {$clients[$loser]['name']} {$res['loser']['delta']} ({$res['loser']['rating']})");
 }
 
 function doGoal(int $mid, int $scorer): void {
@@ -129,7 +163,11 @@ function doGoal(int $mid, int $scorer): void {
     $m['state'] = $over ? 'over' : 'serve';
     $m['t'] = microtime(true) + 2.5;            // délai pour l'animation du but
     foreach ([$m['a'], $m['b']] as $id) send($id, resultFor($m, $id, 'goal', $scorer, $over));
-    if ($over) logm("Match #$mid finished: {$m['score'][$m['a']]}-{$m['score'][$m['b']]}");
+    if ($over) {
+        logm("Match #$mid finished: {$m['score'][$m['a']]}-{$m['score'][$m['b']]}");
+        $winner = $m['score'][$m['a']] > $m['score'][$m['b']] ? $m['a'] : $m['b'];
+        recordMatchResult($mid, $winner, otherOf($m, $winner));
+    }
 }
 
 function handleMatchMsg(int $id, string $t, array $msg): void {
@@ -203,13 +241,17 @@ function handleMsg(int $id, string $raw): void {
         if ($c['name'] !== null) return;
         $name = cleanName((string)($msg['name'] ?? ''));
         if ($name === '') { send($id, ['t' => 'error', 'code' => 'invalid_name', 'msg' => 'Invalid nickname.']); return; }
+        // jeton secret du navigateur : sans lui (ou avec un jeton invalide), le joueur est « invité » (parties non classées)
+        $th = tokenValid($msg['token'] ?? null) ? tokenHash($msg['token']) : '';
         $base = $name; $i = 2;
-        $taken = fn(string $n) => count(array_filter($GLOBALS['clients'], fn($x) => $x['name'] !== null && mb_strtolower($x['name']) === mb_strtolower($n))) > 0;
-        while ($taken($name)) { $name = mb_substr($base, 0, 13) . $i++; }
+        $online = fn(string $n) => count(array_filter($GLOBALS['clients'], fn($x) => $x['name'] !== null && mb_strtolower($x['name']) === mb_strtolower($n))) > 0;
+        // un pseudo est refusé s'il est déjà en ligne, ou réservé dans le classement par un autre jeton
+        while ($online($name) || nameReservedByOther($GLOBALS['ranking'], $name, $th)) { $name = mb_substr($base, 0, 13) . $i++; }
         $c['name'] = $name;
+        $c['th'] = $th;
         $c['kind'] = max(0, min(3, (int)($msg['kind'] ?? 0)));
         $c['status'] = 'lobby';
-        send($id, ['t' => 'welcome', 'id' => $id, 'name' => $name]);
+        send($id, ['t' => 'welcome', 'id' => $id, 'name' => $name, 'ranked' => $th !== '']);
         logm("+ $name (#$id)");
         broadcastLobby();
         return;
@@ -299,7 +341,7 @@ while (true) {
             $id = $nextId++;
             $clients[$id] = [
                 'id' => $id, 'sock' => $conn, 'buf' => '', 'out' => '', 'ws' => false, 'frag' => null,
-                'name' => null, 'kind' => 0, 'status' => 'new', 'match' => null,
+                'name' => null, 'th' => '', 'kind' => 0, 'status' => 'new', 'match' => null,
                 'last' => time(), 'rate' => 0, 'rateT' => 0,
             ];
             $byRes[(int)$conn] = $id;

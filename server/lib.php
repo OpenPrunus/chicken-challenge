@@ -85,3 +85,102 @@ function decodeFrame(string $buf, int $maxPayload = 8192): array|null|false {
     if ($len > 0) $payload = $payload ^ substr(str_repeat($mask, intdiv($len, 4) + 1), 0, $len);
     return ['fin' => $fin, 'op' => $op, 'payload' => $payload, 'consumed' => $pos + 4 + $len];
 }
+
+// ------------------------------------------------------------------------------------------------------------
+// Classement multijoueur (Elo). Fonctions pures : le serveur de jeu les appelle puis persiste le résultat.
+// Un joueur « classé » présente un jeton secret (généré par son navigateur) : seul son hash SHA-256 est
+// conservé. Le premier joueur à terminer un match classé sous un pseudo le réserve ; les autres jetons ne
+// peuvent plus l'utiliser, ce qui empêche d'usurper un pseudo du classement.
+// ------------------------------------------------------------------------------------------------------------
+
+const RATING_START = 1000;
+const RATING_FLOOR = 100;
+
+/** Clé d'un pseudo dans le classement (insensible à la casse). */
+function nameKey(string $name): string { return mb_strtolower($name); }
+
+/** Un jeton valide : 32 à 64 caractères hexadécimaux. */
+function tokenValid(mixed $token): bool {
+    return is_string($token) && preg_match('/^[a-f0-9]{32,64}$/', $token) === 1;
+}
+
+function tokenHash(string $token): string { return hash('sha256', $token); }
+
+/** Probabilité que A batte B (formule d'Elo). */
+function ratingExpected(float $ra, float $rb): float {
+    return 1.0 / (1.0 + 10 ** (($rb - $ra) / 400.0));
+}
+
+/** Facteur K : les nouveaux joueurs bougent plus vite pour trouver leur niveau. */
+function ratingK(int $played): int { return $played < 10 ? 40 : 24; }
+
+function newPlayerEntry(string $name, string $hash): array {
+    return ['name' => $name, 'th' => $hash, 'rating' => RATING_START, 'played' => 0, 'wins' => 0, 'losses' => 0, 'gf' => 0, 'ga' => 0];
+}
+
+/** Ce pseudo est-il réservé par un autre jeton que $hash (chaîne vide = invité sans jeton) ? */
+function nameReservedByOther(array $players, string $name, string $hash): bool {
+    $e = $players[nameKey($name)] ?? null;
+    return $e !== null && ($e['th'] ?? '') !== '' && ($e['th'] ?? '') !== $hash;
+}
+
+/**
+ * Enregistre un match classé. $winner / $loser : [pseudo, hash du jeton]. $gfW / $gfL : points marqués.
+ * Retourne ['players' => nouvelle table, 'winner' => [rating, delta, rank], 'loser' => [...]],
+ * ou null si le match ne peut pas être classé (jeton manquant, même jeton des deux côtés, pseudo réservé par un autre).
+ *
+ * @param array<string, array<string, mixed>> $players
+ */
+function recordRankedMatch(array $players, array $winner, array $loser, int $gfW, int $gfL): ?array {
+    [$nw, $hw] = $winner; [$nl, $hl] = $loser;
+    if ($hw === '' || $hl === '' || $hw === $hl) return null;
+    if (nameReservedByOther($players, $nw, $hw) || nameReservedByOther($players, $nl, $hl)) return null;
+
+    $kw = nameKey($nw); $kl = nameKey($nl);
+    $w = $players[$kw] ?? newPlayerEntry($nw, $hw);
+    $l = $players[$kl] ?? newPlayerEntry($nl, $hl);
+    $w['th'] = $hw; $l['th'] = $hl;                               // réserve les pseudos au premier match classé
+
+    $expectedW = ratingExpected((float)$w['rating'], (float)$l['rating']);
+    $newW = max(RATING_FLOOR, (int)round($w['rating'] + ratingK((int)$w['played']) * (1 - $expectedW)));
+    $newL = max(RATING_FLOOR, (int)round($l['rating'] - ratingK((int)$l['played']) * (1 - $expectedW)));
+    $deltaW = $newW - (int)$w['rating']; $deltaL = $newL - (int)$l['rating'];
+
+    $w['rating'] = $newW; $w['played']++; $w['wins']++; $w['gf'] += $gfW; $w['ga'] += $gfL; $w['name'] = $nw;
+    $l['rating'] = $newL; $l['played']++; $l['losses']++; $l['gf'] += $gfL; $l['ga'] += $gfW; $l['name'] = $nl;
+    $players[$kw] = $w; $players[$kl] = $l;
+
+    return [
+        'players' => $players,
+        'winner' => ['rating' => $newW, 'delta' => $deltaW, 'rank' => rankOf($players, $kw)],
+        'loser'  => ['rating' => $newL, 'delta' => $deltaL, 'rank' => rankOf($players, $kl)],
+    ];
+}
+
+/** Rang d'un joueur (1 = premier) : 1 + nombre de joueurs strictement mieux classés. Les ex æquo partagent le rang. */
+function rankOf(array $players, string $key): int {
+    $mine = $players[$key] ?? null;
+    if ($mine === null) return count($players) + 1;
+    $mr = (int)($mine['rating'] ?? 0); $mw = (int)($mine['wins'] ?? 0);
+    $rank = 1;
+    foreach ($players as $p) {                                     // tolère un fichier abîmé : une ligne sans note vaut 0
+        $pr = (int)($p['rating'] ?? 0);
+        if ($pr > $mr || ($pr === $mr && (int)($p['wins'] ?? 0) > $mw)) $rank++;
+    }
+    return $rank;
+}
+
+/** Charge la table des joueurs ; vide si le fichier est absent ou illisible. */
+function loadPlayers(string $file): array {
+    $d = is_file($file) ? json_decode((string)file_get_contents($file), true) : null;
+    return (is_array($d) && is_array($d['players'] ?? null)) ? $d['players'] : [];
+}
+
+/** Écrit la table de façon atomique (fichier temporaire puis rename) : un lecteur ne voit jamais un fichier tronqué. */
+function savePlayers(string $file, array $players): bool {
+    $tmp = $file . '.tmp';
+    $json = json_encode(['version' => 1, 'players' => (object)$players], JSON_UNESCAPED_UNICODE);
+    if ($json === false || @file_put_contents($tmp, $json, LOCK_EX) === false) return false;
+    if (!@rename($tmp, $file)) { @unlink($tmp); return false; }
+    return true;
+}

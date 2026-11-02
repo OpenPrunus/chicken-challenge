@@ -46,3 +46,29 @@ function chicken_load(string $file): array {
     $d = is_file($file) ? json_decode((string)file_get_contents($file), true) : [];
     return is_array($d) ? $d : [];
 }
+
+// ---------------------------------------------------------------------------------------------------------
+// Classement multijoueur : écrit par le serveur de jeu (server/lib.php), lu ici. On n'expose JAMAIS le hash
+// du jeton (champ « th ») : seuls les champs publics ci-dessous sortent par l'API.
+// ---------------------------------------------------------------------------------------------------------
+
+/** Lit multi_scores.json ; [] si absent ou illisible. */
+function chicken_load_multi(string $file): array {
+    $d = is_file($file) ? json_decode((string)file_get_contents($file), true) : null;
+    return (is_array($d) && is_array($d['players'] ?? null)) ? $d['players'] : [];
+}
+
+/** Top du classement : rating, puis victoires, puis pseudo. Champs publics uniquement. */
+function chicken_rank_multi(array $players, int $limit = 20): array {
+    $rows = [];
+    foreach ($players as $p) {
+        if (!isset($p['name'], $p['rating'])) continue;
+        $rows[] = [
+            'name' => (string)$p['name'], 'rating' => (int)$p['rating'], 'played' => (int)($p['played'] ?? 0),
+            'wins' => (int)($p['wins'] ?? 0), 'losses' => (int)($p['losses'] ?? 0),
+            'gf' => (int)($p['gf'] ?? 0), 'ga' => (int)($p['ga'] ?? 0),
+        ];
+    }
+    usort($rows, fn($a, $b) => [$b['rating'], $b['wins'], $a['name']] <=> [$a['rating'], $a['wins'], $b['name']]);
+    return array_slice($rows, 0, $limit);
+}
