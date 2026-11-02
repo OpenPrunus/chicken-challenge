@@ -4,6 +4,10 @@ FROM php:8.5-apache-trixie
 RUN a2enmod rewrite && \
     sed -ri 's/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
 
+# data/ n'est jamais servi par le web, même si un bind-mount masque son .htaccess
+RUN printf '<Directory /var/www/html/data>\n    Require all denied\n</Directory>\n' > /etc/apache2/conf-available/chicken-data.conf && \
+    a2enconf chicken-data
+
 # Site web (docroot) et serveur WebSocket (hors docroot : jamais servi par Apache)
 COPY web/ /var/www/html/
 COPY server/ /opt/chicken/
