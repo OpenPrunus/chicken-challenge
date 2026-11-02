@@ -113,6 +113,39 @@ describe('ordinaux', () => {
   });
 });
 
+describe('lien GitHub', () => {
+  const html = read('web/index.php');
+  const link = html.match(/<a class="gh"[^>]*>/)?.[0] || '';
+  test('pointe vers le dépôt, s\'ouvre dans un nouvel onglet sans fuite de contexte', () => {
+    assert.match(link, /href="https:\/\/github\.com\/OpenPrunus\/chicken-challenge"/);
+    assert.match(link, /target="_blank"/);
+    assert.match(link, /rel="noopener noreferrer"/);
+  });
+  test('icône SVG intégrée, masquée aux lecteurs d\'écran (le texte suffit), sans dépendance externe', () => {
+    const svg = html.match(/<a class="gh"[\s\S]*?<\/a>/)[0];
+    assert.match(svg, /<svg[^>]*aria-hidden="true"/);
+    assert.ok(!/<img|src="http|url\(http/.test(svg), 'aucune ressource externe');
+  });
+  test('le texte est traduit en français et en anglais', () => {
+    const { dict } = load({ languages: ['en-US'] }).I18N;
+    assert.match(html, /data-i18n="foot\.github"/);
+    assert.equal(dict.fr['foot.github'], 'Voir le projet sur GitHub');
+    assert.equal(dict.en['foot.github'], 'View the project on GitHub');
+  });
+  test('le style est celui du jeu : pilule noire, ombre orange décalée, survol, focus clavier, cible tactile', () => {
+    const css = read('web/assets/style.css');
+    assert.match(css, /\.gh\s*\{[^}]*border-radius:\s*999px/);
+    assert.match(css, /\.gh\s*\{[^}]*box-shadow:\s*4px 4px 0 var\(--acc\)/);
+    assert.match(css, /\.gh:hover/);
+    assert.match(css, /\.gh:focus-visible/);
+    assert.match(css, /\.gh\s*\{\s*min-height:\s*44px/);
+    assert.match(css, /prefers-reduced-motion[^}]*\.gh/);
+  });
+  test('le dépôt cité par le lien est celui du README', () => {
+    assert.ok(read('README.md').includes('github.com/OpenPrunus/chicken-challenge'));
+  });
+});
+
 describe('textes mobiles', () => {
   const { dict, t } = load({ languages: ['en-US'] }).I18N;
   test('les indications tactiles existent en FR et EN et diffèrent de celles de la souris', () => {

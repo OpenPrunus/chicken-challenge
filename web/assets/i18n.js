@@ -4,6 +4,7 @@
 
 const DICT = {
   fr: {
+    'foot.github': 'Voir le projet sur GitHub',
     'menu.nick': 'Pseudo', 'menu.nick.ph': 'Ton pseudo', 'menu.char': 'Choisis ton personnage', 'menu.level': 'Niveau',
     'level0': 'Collégien', 'level1': 'Flic', 'level2': 'Commissaire',
     'char0': 'Le Fermier', 'char1': 'Le Cochon', 'char2': 'Le Punk', 'char3': 'La Mamie',
@@ -60,6 +61,7 @@ const DICT = {
     'over.rated': 'Classement : {rating} pts ({delta}) — {rank}{ord} sur {total}', 'over.unranked': 'Partie non classée.',
   },
   en: {
+    'foot.github': 'View the project on GitHub',
     'menu.nick': 'Nickname', 'menu.nick.ph': 'Your nickname', 'menu.char': 'Choose your character', 'menu.level': 'Level',
     'level0': 'Schoolkid', 'level1': 'Cop', 'level2': 'Chief',
     'char0': 'The Farmer', 'char1': 'The Pig', 'char2': 'The Punk', 'char3': 'Granny',

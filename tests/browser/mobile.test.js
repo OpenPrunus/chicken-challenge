@@ -538,6 +538,111 @@ describe('fin de match multijoueur : message de classement', () => {
   });
 });
 
+describe('lien GitHub', () => {
+  const info = () => ev(`(() => { const a = document.querySelector('.gh'); const r = a.getBoundingClientRect(); const cs = getComputedStyle(a);
+    return { href: a.href, target: a.target, rel: a.rel, text: a.textContent.trim(), w: r.width, h: r.height, x: r.x, right: r.right, bg: cs.backgroundColor, radius: cs.borderTopLeftRadius,
+             shadow: cs.boxShadow, transform: cs.transform, svg: !!a.querySelector('svg'), svgW: a.querySelector('svg').getBoundingClientRect().width }; })()`);
+
+  test('ordinateur : bouton visible sous le menu, bon lien, dans le style du jeu', async () => {
+    await open(DESKTOP);
+    await ev('document.querySelector("#lang [data-lang=en]").click()');
+    const i = await info();
+    assert.equal(i.href, 'https://github.com/OpenPrunus/chicken-challenge');
+    assert.equal(i.target, '_blank'); assert.match(i.rel, /noopener/);
+    assert.equal(i.text, 'View the project on GitHub');
+    assert.equal(i.bg, 'rgb(17, 17, 17)', 'fond noir');
+    assert.equal(i.svg, true); near(i.svgW, 24, 0.5, 'taille de l\'icône');
+    assert.match(i.shadow, /rgb\(255, 154, 0\)/, 'ombre orange');
+    assert.ok(parseFloat(i.radius) > 20, 'pilule');
+  });
+
+  test('il se traduit avec la langue', async () => {
+    await open(DESKTOP);
+    await ev('document.querySelector("#lang [data-lang=fr]").click()');
+    assert.equal((await info()).text, 'Voir le projet sur GitHub');
+    await ev('document.querySelector("#lang [data-lang=en]").click()');
+    assert.equal((await info()).text, 'View the project on GitHub');
+  });
+
+  test('au survol, le bouton se soulève (décalage et ombre agrandie)', async () => {
+    await open(DESKTOP);
+    const before = await info();
+    assert.equal(before.transform, 'none');
+    const r = await rectOf('.gh');
+    await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: r.cx, y: r.cy });
+    await sleep(350);                                                    // fin de la transition
+    const after = await info();
+    assert.notEqual(after.transform, 'none', 'translate au survol');
+    assert.match(after.shadow, /6px 6px/, 'ombre plus grande');
+  });
+
+  test('téléphone (portrait et paysage) : tient dans l\'écran, ≥ 44 px de haut, atteignable en défilant', async () => {
+    for (const device of [PHONE_PORTRAIT, PHONE_LANDSCAPE]) {
+      await open(device);
+      await ev('document.querySelector(".gh").scrollIntoView({ block: "center" })');
+      await sleep(80);
+      const i = await info(), vw = await ev('innerWidth');
+      assert.ok(i.h >= 43.5, `hauteur ${i.h}`);
+      assert.ok(i.x >= 0 && i.right <= vw + 0.5, `déborde de l'écran (${i.x}..${i.right} / ${vw})`);
+      assert.equal(await ev('document.documentElement.scrollWidth <= innerWidth'), true, 'pas de défilement horizontal');
+      assert.equal(await ev('(() => { const r = document.querySelector(".gh").getBoundingClientRect(); return !!document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest(".gh"); })()'), true, 'rien ne le recouvre');
+    }
+  });
+
+  test('absent pendant la partie : l\'écran de jeu le recouvre', async () => {
+    await startAiGame(DESKTOP);
+    assert.equal(await ev(`(() => { const r = document.querySelector('.gh').getBoundingClientRect();
+      const top = document.elementFromPoint(Math.min(r.x + r.width / 2, innerWidth - 1), Math.min(r.y + r.height / 2, innerHeight - 1));
+      return !top || !top.closest('.gh'); })()`), true);
+  });
+
+  test('un tap sur le lien ne lance pas de partie ni ne casse la page (ouverture dans un autre onglet)', async () => {
+    await open(PHONE_PORTRAIT);
+    await ev('document.querySelector(".gh").addEventListener("click", (e) => e.preventDefault())');          // on n'ouvre pas vraiment GitHub dans le test
+    await ev('document.querySelector(".gh").scrollIntoView({ block: "center" })'); await sleep(80);
+    const r = await rectOf('.gh');
+    await tapAt(r.cx, r.cy); await sleep(150);
+    assert.equal(await ev('document.body.classList.contains("playing")'), false);
+    assert.equal(await ev('document.getElementById("menu").hidden'), false);
+  });
+});
+
+describe('taille de la poule sur téléphone', () => {
+  const boost = () => ev('window.__chickenDebug.henBoost()');
+  test('agrandie sur téléphone (portrait et paysage), inchangée sur ordinateur', async () => {
+    await startAiGame(PHONE_PORTRAIT);
+    assert.equal(await boost(), 2, 'portrait 390 px de large');
+    await startAiGame(PHONE_LANDSCAPE);
+    near(await boost(), 1000 / 520, 0.05, 'paysage : canvas de 520 px');
+    await startAiGame(DESKTOP);
+    assert.equal(await boost(), 1, 'ordinateur');
+  });
+  test('la rotation recalcule la taille de la poule', async () => {
+    await startAiGame(PHONE_PORTRAIT);
+    assert.equal(await boost(), 2);
+    await call('Emulation.setDeviceMetricsOverride', { width: 844, height: 390, deviceScaleFactor: 2, mobile: true });
+    await waitFor(async () => (await boost()) < 2, 3000, 'boost recalculé');
+    near(await boost(), 1000 / 520, 0.05);
+  });
+  test('taper sur la poule telle qu\'on la voit la rattrape, même dans un coin du tunnel ; loin d\'elle, non', async () => {
+    await startAiGame(PHONE_PORTRAIT);
+    const setHen = (x, y, z) => ev(`(() => { const G = window.__chickenDebug(); G.state = 'flight'; G.turn = 'opp'; G.cooldown = 0;
+      G.hen = { z: ${z}, dir: -1, x: ${x}, y: ${y}, vx: 0, vy: 0, spin: 0, speed: 0.0001, speed0: 0.8, spin0: 0, rot: 0, bounces: 0 }; })()`);
+    const tapDrawn = async (x, y, z, dx = 0, dy = 0) => {                      // dx, dy : décalage en px canvas par rapport à la poule dessinée
+      await setHen(x, y, z);
+      const p = E.proj(x, y, z);
+      const t = await canvasToViewport(p.x + dx, p.y + dy);
+      await tapAt(t.x, t.y); await sleep(60);
+      return (await state()).state === 'caught';
+    };
+    assert.equal(await tapDrawn(1, 1, 0.24), true, 'poule dans le coin bas-droit, tap pile dessus');
+    assert.equal(await tapDrawn(-1, -1, 0.24), true, 'coin haut-gauche');
+    assert.equal(await tapDrawn(-1, 1, 0.2), true, 'coin bas-gauche');
+    assert.equal(await tapDrawn(0, 0, 0.2), true, 'centre');
+    assert.equal(await tapDrawn(0.3, 0.2, 0.2, 400, 500), false, 'loin de la poule : ratée');
+  });
+});
+
 describe('accès de debug', () => {
   test('n\'est exposé que si l\'URL contient ?e2e', async () => {
     await open(DESKTOP, '');

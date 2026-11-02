@@ -77,3 +77,16 @@ html { -webkit-text-size-adjust:100%; }
 #board li.me, #boardLobby li.me { background:#fff3d6; border-radius:6px; }
 #boardLobby { margin:0 0 12px; padding-left:1.5rem; color:var(--mut); }
 #boardLobby b { color:var(--ink); }
+
+/* ---------- Lien GitHub (pied de page) ---------- */
+#foot { display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:12px; margin:26px 0 6px; }
+.gh { display:inline-flex; align-items:center; gap:10px; padding:10px 20px 10px 14px; background:#111; color:#fff; text-decoration:none;
+      border:3px solid #111; border-radius:999px; box-shadow:4px 4px 0 var(--acc); font-weight:800; font-size:.95rem; letter-spacing:.2px;
+      transition:transform .12s ease, box-shadow .12s ease; }
+.gh svg { width:24px; height:24px; flex:none; fill:currentColor; }
+.gh:hover, .gh:focus-visible { transform:translate(-2px,-2px); box-shadow:6px 6px 0 var(--acc); }
+.gh:active { transform:translate(2px,2px); box-shadow:1px 1px 0 var(--acc); }
+.gh:focus-visible { outline:3px solid var(--acc); outline-offset:3px; }
+.license { font-size:.75rem; font-weight:800; color:var(--mut); border:2px solid var(--mut); border-radius:6px; padding:1px 6px; letter-spacing:.5px; }
+@media (prefers-reduced-motion: reduce) { .gh { transition:none; } }
+@media (pointer: coarse) { .gh { min-height:44px; } }

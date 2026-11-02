@@ -327,6 +327,85 @@ describe('pondération de la capture', () => {
   });
 });
 
+describe('taille de la poule sur petit écran', () => {
+  const DEVICES = { 'PC 1280x800': [1280, 800], 'téléphone paysage': [844, 390], 'grand téléphone portrait': [412, 915], 'téléphone portrait': [390, 844], 'petit téléphone': [360, 640], 'tablette portrait': [768, 1024] };
+  // taille réelle du canvas à l'écran pour une fenêtre donnée, comme fitCanvas() la calcule
+  const screenOf = ([w, h]) => { const l = E.computeLayout(w, h); const k = Math.min(w / l.W, h / l.H); return { l, k, cssW: l.W * k }; };
+
+  test('henBoost : 1 sur PC (rien ne change), jusqu\'à 2 sur téléphone', () => {
+    for (const w of [1067, 1100, 1500, 2000]) assert.equal(E.henBoost(w), 1, `${w}px`);
+    near(E.henBoost(768), 1000 / 768, 1e-9);
+    near(E.henBoost(520), 1000 / 520, 1e-9);
+    assert.equal(E.henBoost(390), 2);
+    assert.equal(E.henBoost(200), 2, 'plafonné à 2');
+  });
+  test('henBoost : décroît quand l\'écran grandit, valeurs invalides = 1', () => {
+    let prev = Infinity;
+    for (const w of [250, 320, 390, 520, 768, 900, 1000, 1067, 1400]) { const b = E.henBoost(w); assert.ok(b <= prev + 1e-12, `${w}`); prev = b; }
+    for (const bad of [0, -10, NaN, undefined]) assert.equal(E.henBoost(bad), 1);
+  });
+  test('sur PC la poule garde exactement sa taille d\'origine', () => {
+    const { l, cssW } = screenOf(DEVICES['PC 1280x800']);
+    E.setLayout(l);
+    try {
+      assert.equal(E.henBoost(cssW), 1);
+      assert.equal(E.henRadius(0, E.henBoost(cssW)), 100);
+      near(E.henRadius(0.25, 1), 100 / 1.75, 1e-9);
+    } finally { E.setLayout(E.computeLayout(1280, 800)); }
+  });
+  test('au moment où la capture devient possible, la poule fait au moins ~65 % de sa taille sur PC (elle ne paraît plus « loin »)', () => {
+    const zmax = E.catchReach({ bounces: 0, spin0: 0, speed0: 0.8 }).zmax;
+    const px = (name) => { const { l, k, cssW } = screenOf(DEVICES[name]); E.setLayout(l); try { return E.henRadius(zmax, E.henBoost(cssW)) * k; } finally { E.setLayout(E.computeLayout(1280, 800)); } };
+    const pc = px('PC 1280x800');
+    for (const name of Object.keys(DEVICES)) assert.ok(px(name) >= pc * 0.65, `${name} : ${px(name).toFixed(0)}px contre ${pc.toFixed(0)}px sur PC`);
+    assert.ok(px('téléphone portrait') >= 50, `un doigt fait ~45 px : la poule doit être plus grosse (${px('téléphone portrait').toFixed(0)}px)`);
+  });
+  test('on tape sur ce qu\'on voit : taper sur la poule dessinée la rattrape toujours, partout dans le tunnel (coins compris)', () => {
+    for (const [w, h] of [[1280, 800], [844, 390], [390, 844], [768, 1024]]) {
+      const l = E.computeLayout(w, h);
+      E.setLayout(l);
+      try {
+        for (const hen of [{ bounces: 0, spin0: 0, speed0: 0.8 }, { bounces: 3, spin0: 2, speed0: 1.5 }]) {
+          const zmax = E.catchReach(hen).zmax;
+          for (const z of [0.02, 0.1, 0.2, zmax - 0.005]) {
+            for (const x of [-1, -0.7, 0, 0.7, 1]) for (const y of [-1, -0.5, 0, 0.5, 1]) {
+              const p = E.proj(x, y, z);                                          // où la poule est dessinée
+              const mx = (p.x - l.CX) / l.HW, my = (p.y - l.CY) / l.HH;             // la main posée exactement dessus
+              assert.ok(E.canCatch({ ...hen, z, x, y }, mx, my), `${w}x${h} poule (${x},${y}) z=${z.toFixed(3)} : tap sur la poule dessinée raté`);
+            }
+          }
+        }
+      } finally { E.setLayout(E.computeLayout(1280, 800)); }
+    }
+  });
+  test('régression : avant, taper sur une poule dessinée dans un coin la ratait (distance 0.59 > 0.42)', () => {
+    const l = E.computeLayout(1280, 800); E.setLayout(l);
+    const hen = { bounces: 0, spin0: 0, speed0: 0.8, z: 0.24, x: 1, y: 1 };
+    const p = E.proj(1, 1, 0.24);
+    const mx = (p.x - l.CX) / l.HW, my = (p.y - l.CY) / l.HH;
+    assert.ok(Math.hypot(hen.x - mx, hen.y - my) > 0.42, 'l\'ancien test seul aurait échoué');
+    assert.ok(E.canCatch(hen, mx, my), 'le nouveau test accepte');
+  });
+  test('le comportement d\'origine est conservé : main près de la position d\'arrivée (x, y) = attrapée', () => {
+    const h = { bounces: 0, spin0: 0, speed0: 0.8, z: 0.2, x: 0.5, y: -0.3 };
+    assert.ok(E.canCatch(h, 0.5, -0.3));
+    assert.ok(E.canCatch(h, 0.5 + 0.41, -0.3));
+    // z=0.2 -> s=0.625 : la poule est dessinée à x=0.3125 ; une main à 0.6 de la position d'arrivée ET à 0.79 de la poule dessinée rate
+    assert.ok(!E.canCatch(h, 0.5 + 0.6, -0.3), 'trop loin des deux positions : raté');
+  });
+  test('ne rend pas la capture gratuite : loin de la poule dessinée ET de sa position d\'arrivée = raté', () => {
+    const h = { bounces: 0, spin0: 0, speed0: 0.8, z: 0.2, x: 0.5, y: -0.3 };
+    assert.ok(!E.canCatch(h, -0.9, 0.9));
+    assert.ok(!E.canCatch(h, 0.5, 0.9));
+    assert.ok(!E.canCatch({ ...h, z: 0.26 }, 0.5, -0.3), 'fenêtre de timing inchangée');
+  });
+  test('la fenêtre de timing n\'est pas élargie par l\'agrandissement ni par la capture à l\'écran', () => {
+    const h = { bounces: 0, spin0: 0, speed0: 0.8, x: 0, y: 0 };
+    assert.equal(E.canCatch({ ...h, z: 0.26 }, 0, 0), false);
+    assert.equal(E.canCatch({ ...h, z: 0.24 }, 0, 0), true);
+  });
+});
+
 describe('perspective inversée (multijoueur)', () => {
   test('mirrorHen : gauche/droite en miroir, haut/bas inchangés, part du fond', () => {
     const m = E.mirrorHen({ x: 0.4, y: 0.6, vx: -1.5, vy: -0.3, spin: 1.1, speed: 1.2 });

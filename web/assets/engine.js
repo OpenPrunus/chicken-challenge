@@ -114,9 +114,22 @@
     const c = chaos(h);
     return { r: 0.42 + 0.22 * c, zmax: 0.25 + 0.08 * c, c };   // rayon de la main et fenêtre de timing
   }
+  // Taille de la poule à l'écran. Sur un petit écran (téléphone), la poule dessinée au même rapport que sur PC ne
+  // ferait que quelques dizaines de pixels quand il faut la rattraper : elle paraîtrait loin, plus petite qu'un doigt.
+  // `henBoost` l'agrandit selon la largeur réelle du canvas à l'écran (1 sur PC, jusqu'à 2 sur téléphone).
+  const HEN_RADIUS = 100;                              // rayon de la poule au premier plan, en px canvas (paysage)
+  function henBoost(cssWidth) { return cssWidth > 0 ? clamp(1000 / cssWidth, 1, 2) : 1; }
+  function henRadius(z, boost = 1) { return HEN_RADIUS * L.scale * boost / (1 + 3 * z); }
+
+  // Capture : la main (mx, my) est exprimée dans le repère du plan proche, la poule (h.x, h.y) dans celui du tunnel.
+  // On accepte la main près de la position « d'arrivée » de la poule (x, y) -- le comportement d'origine -- OU près de
+  // l'endroit où elle est dessinée (x·s, y·s) : taper sur ce qu'on voit doit toujours la rattraper, même dans un coin
+  // du tunnel (sinon elle paraît à portée sans l'être).
   function canCatch(h, mx, my) {
     const reach = catchReach(h);
-    return h.z < reach.zmax && Math.hypot(h.x - mx, h.y - my) < reach.r;
+    if (h.z >= reach.zmax) return false;
+    const s = 1 / (1 + 3 * h.z);
+    return Math.min(Math.hypot(h.x - mx, h.y - my), Math.hypot(h.x * s - mx, h.y * s - my)) < reach.r;
   }
 
   // Perspective inversée (multijoueur) : la poule lancée par l'adversaire part du fond, gauche/droite en miroir.
@@ -134,6 +147,6 @@
 
   return {
     W, H, CX, CY, HW, HH, layout: L, computeLayout, setLayout, GRAV, TOUCH_AIM_OFFSET, clamp, proj, makeHen, makeHenAim, aimPoint, aimFromPointer, step,
-    flickSpin, power, chaos, catchReach, canCatch, mirrorHen, matchOver,
+    flickSpin, power, chaos, catchReach, canCatch, henBoost, henRadius, HEN_RADIUS, mirrorHen, matchOver,
   };
 });

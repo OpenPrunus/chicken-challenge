@@ -15,7 +15,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const E = window.ChickenEngine;
 const { clamp, proj, step, makeHen, makeHenAim, chaos, catchReach, canCatch, mirrorHen } = E;
 // Disposition courante (paysage 4:3 ou portrait plein écran) : mise à jour par applyLayout().
-let W = 800, H = 600, CX = 400, CY = 285, HW = 360, HH = 250, LS = 1, PORTRAIT = false;
+let W = 800, H = 600, CX = 400, CY = 285, HW = 360, HH = 250, LS = 1, PORTRAIT = false, HB = 1;     // HB : agrandissement de la poule sur petit écran
 const aimPoint = () => E.aimFromPointer(G.mouse.px, G.mouse.py, G.mouse.touch);   // point du couloir visé (souris ou doigt)
 const COARSE = matchMedia('(pointer: coarse)').matches;                              // téléphone / tablette
 
@@ -40,6 +40,7 @@ function fitCanvas() {                                                          
   const ah = game.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
   const k = Math.min(aw / W, ah / H);
   cv.style.width = Math.floor(W * k) + 'px'; cv.style.height = Math.floor(H * k) + 'px';
+  HB = E.henBoost(W * k);                                                           // largeur réelle du canvas à l'écran
 }
 let layoutRaf = 0;
 const relayout = () => { cancelAnimationFrame(layoutRaf); layoutRaf = requestAnimationFrame(applyLayout); };
@@ -655,7 +656,6 @@ function drawChar(c, kind, x, y, h, raise = true, alpha = 1) {   // x,y = pieds 
 }
 
 // ----- scène -----
-const R_HEN = 100;                                     // rayon de la poule au premier plan
 
 function drawHenInFlight() {
   const h = G.hen;
@@ -664,16 +664,16 @@ function drawHenInFlight() {
   c2shadow(sh);
   const front = h.dir < 0;                             // elle fonce vers nous : pleine face, ailes écartées
   const flap = 0.5 + 0.5 * Math.sin(G.time * 16);
-  drawHenArt(ctx, p.x, p.y, R_HEN * LS * p.s, Math.sin(h.rot) * 0.35, front ? 'front' : 'back', { spread: front ? 0.55 : 0, flap });
+  drawHenArt(ctx, p.x, p.y, E.henRadius(h.z, HB), Math.sin(h.rot) * 0.35, front ? 'front' : 'back', { spread: front ? 0.55 : 0, flap });
 }
 function c2shadow(sh) {
   ctx.fillStyle = '#6a5d3a55';
-  ctx.beginPath(); ctx.ellipse(sh.x, sh.y, 70 * LS * sh.s * 1.3, 14 * LS * sh.s * 1.3, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(sh.x, sh.y, 70 * LS * HB * sh.s * 1.3, 14 * LS * HB * sh.s * 1.3, 0, 0, 7); ctx.fill();
 }
 
 // poule tenue dans deux mains (après un rattrapage ou en attente de lancer)
 function drawHeld(x, y, z, alpha = 1) {
-  const p = proj(x, y, z), R = R_HEN * LS * p.s * 0.8;
+  const p = proj(x, y, z), R = E.henRadius(z, HB) * 0.8;
   drawHenArt(ctx, p.x, p.y, R, 0, z < 0.5 ? 'back' : 'front', { alpha, spread: 0.3 });
   drawHand(ctx, p.x - R * 0.95, p.y + R * 0.25, R * 1.2, true, alpha, 1);
   drawHand(ctx, p.x + R * 0.95, p.y + R * 0.25, R * 1.2, true, alpha, -1);
@@ -1092,5 +1092,5 @@ setInterval(() => {
 applyLayout();
 
 // Tests de navigateur (tests/browser) : expose l'état du jeu uniquement si l'URL contient ?e2e.
-if (new URLSearchParams(location.search).has('e2e')) window.__chickenDebug = Object.assign(() => G, { aim: () => aimPoint(), overMsg: () => netOverMsg() });
+if (new URLSearchParams(location.search).has('e2e')) window.__chickenDebug = Object.assign(() => G, { aim: () => aimPoint(), overMsg: () => netOverMsg(), henBoost: () => HB });
 })();
