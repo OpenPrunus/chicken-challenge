@@ -90,3 +90,5 @@ html { -webkit-text-size-adjust:100%; }
 .license { font-size:.75rem; font-weight:800; color:var(--mut); border:2px solid var(--mut); border-radius:6px; padding:1px 6px; letter-spacing:.5px; }
 @media (prefers-reduced-motion: reduce) { .gh { transition:none; } }
 @media (pointer: coarse) { .gh { min-height:44px; } }
+
+.note { margin:0 0 6px; font-size:.82rem; color:var(--mut); font-style:italic; }

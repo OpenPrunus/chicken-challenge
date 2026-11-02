@@ -91,7 +91,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/data"
           sudo chown 33:33 "$RUNNER_TEMP/data"
           docker run -d --name web -p 8080:80 -v "$RUNNER_TEMP/data:/var/www/html/data" \
-            -e CHICKEN_WS=wss://example.test/ws chicken-challenge:ci
+            -e CHICKEN_WS=wss://example.test/ws -e CHICKEN_MIN_POINT_SECONDS=0 chicken-challenge:ci
           docker run -d --name ws -p 8081:8081 --user 33:33 -v "$RUNNER_TEMP/data:/var/www/html/data" \
             -e WS_ALLOWED_ORIGINS=https://example.test chicken-challenge:ci php /opt/chicken/server.php
           for i in $(seq 1 30); do curl -fs http://localhost:8080/ >/dev/null && break; sleep 1; done
@@ -103,20 +103,32 @@ jobs:
           test "$(code $B/)" = 200
           curl -s $B/ | grep -q 'wss:\\/\\/example.test\\/ws'
           for f in engine.js i18n.js game.js style.css; do test "$(code $B/assets/$f)" = 200; done
-          # the API validates scores and persists them on the host (scores.json is created by PHP, as in production)
-          test "$(code -X POST -H 'Content-Type: application/json' -d '{"name":"ci","me":4,"opp":1}' $B/api.php)" = 200
-          test "$(code -X POST -H 'Content-Type: application/json' -d '{"name":"ci","me":4,"opp":3}' $B/api.php)" = 422
+          # the API needs a signed ticket (delivered when a game starts), validates scores and persists them on the host
+          TOK=$(openssl rand -hex 16)
+          ticket() { curl -s -X POST -H 'Content-Type: application/json' -d '{"action":"start","token":"'$TOK'","level":1}' $B/api.php | jq -r .ticket; }
+          score() { code -X POST -H 'Content-Type: application/json' -d '{"ticket":"'$1'","name":"ci","me":'$2',"opp":'$3'}' $B/api.php; }
+          T=$(ticket); test -n "$T" -a "$T" != null
+          test "$(score $T 4 3)" = 422                                  # not a valid final score ...
+          test "$(score $T 4 1)" = 200                                  # ... and the ticket was not consumed by that failure
+          test "$(score $T 4 1)" = 403                                  # a ticket works only once
+          test "$(code -X POST -H 'Content-Type: application/json' -d '{"name":"ci","me":12,"opp":0}' $B/api.php)" = 403   # no ticket: refused
+          test "$(score forged.ticket 12 0)" = 403
           test "$(code -X POST -d 'not json' $B/api.php)" = 400
           test "$(code -X DELETE $B/api.php)" = 405
           curl -s $B/api.php | grep -q '"name":"ci"'
+          ! curl -s $B/api.php | grep -q '"th"'                          # token hashes are never published
           sudo grep -q '"name":"ci"' "$RUNNER_TEMP/data/scores.json"
+          # a name is reserved by the first token that uses it
+          TOK2=$(openssl rand -hex 16); T2=$(curl -s -X POST -H 'Content-Type: application/json' -d '{"action":"start","token":"'$TOK2'","level":1}' $B/api.php | jq -r .ticket)
+          test "$(score $T2 12 0)" = 403
           # the scores directory must never be served, even though the bind mount hides its .htaccess
           test "$(code $B/data/scores.json)" = 403
           test "$(code $B/data/)" = 403
           # if the file is not writable, the API must fail loudly (500, JSON) and not leak PHP warnings or paths
           sudo chown root:root "$RUNNER_TEMP/data/scores.json"
           sudo chmod 644 "$RUNNER_TEMP/data/scores.json"
-          out="$(curl -s -w ' HTTP=%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"name":"ci","me":4,"opp":1}' $B/api.php)"
+          T3=$(ticket)
+          out="$(curl -s -w ' HTTP=%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"ticket":"'$T3'","name":"ci","me":4,"opp":1}' $B/api.php)"
           echo "$out"
           echo "$out" | grep -q '{"error":"storage"} HTTP=500'
           ! echo "$out" | grep -qi 'warning\|fatal\|/var/www'
@@ -133,6 +145,7 @@ jobs:
           curl -s "$B/api.php?board=multi" | grep -q '"rating":1020'
           ! curl -s "$B/api.php?board=multi" | grep -q secrethash
           test "$(code $B/data/multi_scores.json)" = 403
+          for f in secret.key abuse.json api.lock; do test "$(code $B/data/$f)" = 403; done      # anti-abuse state is never served
           # the WebSocket server is up and enforces its origin list
           docker logs ws | grep -q 'listening'
           H='Connection: Upgrade'; U='Upgrade: websocket'; V='Sec-WebSocket-Version: 13'; K='Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=='

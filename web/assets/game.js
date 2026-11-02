@@ -17,6 +17,7 @@ const { clamp, proj, step, makeHen, makeHenAim, chaos, catchReach, canCatch, mir
 // Disposition courante (paysage 4:3 ou portrait plein écran) : mise à jour par applyLayout().
 let W = 800, H = 600, CX = 400, CY = 285, HW = 360, HH = 250, LS = 1, PORTRAIT = false, HB = 1;     // HB : agrandissement de la poule sur petit écran
 const aimPoint = () => E.aimFromPointer(G.mouse.px, G.mouse.py, G.mouse.touch);   // point du couloir visé (souris ou doigt)
+const E2E = new URLSearchParams(location.search).has('e2e');                          // mode des tests de navigateur
 const COARSE = matchMedia('(pointer: coarse)').matches;                              // téléphone / tablette
 
 // La disposition suit le format de la fenêtre (rotation du téléphone comprise) : le canvas est redimensionné, le
@@ -103,6 +104,7 @@ async function fetchBoard(kind) {
 }
 async function loadBoard() {
   document.querySelectorAll('#boardTabs button').forEach((b) => b.classList.toggle('sel', b.dataset.board === boardKind));
+  $('boardNote').textContent = t(boardKind === 'multi' ? 'board.multi.note' : 'board.ai.note');
   try { renderBoard($('board'), await fetchBoard(boardKind), boardKind, $('pseudo').value.trim()); }
   catch { $('board').innerHTML = `<li>${t('board.error')}</li>`; }
 }
@@ -257,6 +259,7 @@ function start(netInfo) {
     oppKind: netInfo ? netInfo.opp.kind : others[Math.floor(Math.random() * others.length)],
     oppName: netInfo ? netInfo.opp.name : null,
     rally: 0, localResolved: false, pending: null, oppXt: 0, posX: 9,
+    ticket: netInfo || E2E ? null : requestTicket(level),       // (en mode test ?e2e, pas de ticket : on ne consomme pas le quota)
     time: 0, held: null, bg: null,
     state: 'serve', turn: netInfo && !netInfo.serve ? 'opp' : 'me',      // qui lance
     timer: 0, hen: null, flash: '', flashT: 0, flashWho: 'me',
@@ -414,13 +417,28 @@ async function finish() {
   $('over').hidden = false;
   won ? sndWin() : beep(100, 0.5, 'sawtooth', 0.08);
   if (G.mode === 'net') return;
+  // Le score est accompagné du ticket signé reçu au début de la partie (voir requestTicket) : sans lui, le serveur refuse.
+  const ticket = await G.ticket;
   try {
     const r = await fetch('api.php', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: G.name, me: G.me, opp: G.opp, level: G.levelIdx }),
+      body: JSON.stringify({ ticket, name: G.name, me: G.me, opp: G.opp }),
     });
-    $('overMsg').textContent = r.ok ? t('over.saved') : t('over.notSaved');
+    let err = ''; if (!r.ok) { try { err = (await r.json()).error || ''; } catch {} }
+    $('overMsg').textContent = r.ok ? t('over.saved')
+      : r.status === 429 ? t('over.notSavedRate')
+      : err === 'name_taken' ? t('over.nameTaken')
+      : t('over.notSaved');
+    if (r.ok) loadBoard();
   } catch { $('overMsg').textContent = t('over.notSaved2'); }
+}
+
+// Ticket de partie : délivré par le serveur au début d'une partie contre l'IA, signé, à usage unique.
+function requestTicket(level) {
+  return fetch('api.php', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'start', token: playerToken(), level }),
+  }).then((r) => (r.ok ? r.json() : null)).then((j) => (j && j.ticket) || null).catch(() => null);
 }
 
 function rng(seed) {                                  // générateur déterministe : décor identique à chaque partie
@@ -1092,5 +1110,5 @@ setInterval(() => {
 applyLayout();
 
 // Tests de navigateur (tests/browser) : expose l'état du jeu uniquement si l'URL contient ?e2e.
-if (new URLSearchParams(location.search).has('e2e')) window.__chickenDebug = Object.assign(() => G, { aim: () => aimPoint(), overMsg: () => netOverMsg(), henBoost: () => HB });
+if (new URLSearchParams(location.search).has('e2e')) window.__chickenDebug = Object.assign(() => G, { aim: () => aimPoint(), overMsg: () => netOverMsg(), henBoost: () => HB, finish: () => finish() });
 })();

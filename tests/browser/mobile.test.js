@@ -519,6 +519,110 @@ describe('classements (menu)', () => {
   });
 });
 
+describe('classement contre l\'IA : ticket de partie et messages du serveur', () => {
+  /** Faux serveur : enregistre chaque POST et répond selon `answer(body)`. */
+  async function withApi(answer, fn) {
+    const { identifier } = await call('Page.addScriptToEvaluateOnNewDocument', { source: `
+      (() => { window.__posts = []; const real = window.fetch.bind(window); const answer = ${typeof answer === 'function' ? answer.toString() : answer};
+        window.fetch = (url, opts) => { if (String(url).startsWith('api.php') && opts && opts.method === 'POST') { const body = JSON.parse(opts.body); window.__posts.push(body);
+          const r = answer(body); if (r === 'network') return Promise.reject(new TypeError('Failed to fetch'));
+          return Promise.resolve(new Response(JSON.stringify(r.body), { status: r.status, headers: { 'Content-Type': 'application/json' } })); }
+          return real(url, opts); }; })();` });
+    try { await fn(); } finally { await call('Page.removeScriptToEvaluateOnNewDocument', { identifier }); }
+  }
+  const finishWith = async () => {
+    await ev(`(() => { const G = window.__chickenDebug(); G.me = 4; G.opp = 1; G.ticket = Promise.resolve('TICKET-DE-TEST'); window.__chickenDebug.finish(); })()`);
+    await sleep(250);
+    return ev('document.getElementById("overMsg").textContent');
+  };
+  const lang = (l) => ev(`document.querySelector('#lang [data-lang=${l}]').click()`);
+
+  test('au début d\'une partie, le jeu demande un ticket avec son jeton et le niveau choisi', async () => {
+    await withApi(() => ({ status: 200, body: { ticket: 'T' } }), async () => {
+      await open(DESKTOP, '');                                     // sans ?e2e : comme un vrai joueur
+      await ev('document.querySelector("#levels [data-level=\\"2\\"]").click()');
+      await ev('document.getElementById("play").click()');
+      await waitFor(() => ev('window.__posts.length > 0'), 3000, 'ticket demandé');
+      const [p] = await ev('window.__posts');
+      assert.equal(p.action, 'start'); assert.equal(p.level, 2);
+      assert.match(p.token, /^[a-f0-9]{32}$/);
+      assert.equal(await ev('localStorage.getItem("cc_token")'), p.token, 'c\'est bien le jeton du navigateur');
+    });
+  });
+
+  test('en mode test (?e2e), aucun ticket n\'est demandé', async () => {
+    await withApi(() => ({ status: 200, body: { ticket: 'T' } }), async () => {
+      await startAiGame(DESKTOP);
+      assert.deepEqual(await ev('window.__posts'), []);
+    });
+  });
+
+  test('fin de partie : le score part avec le ticket, sans niveau ni jeton, et le classement est rechargé', async () => {
+    await withApi((b) => ({ status: 200, body: { ok: true } }), async () => {
+      await startAiGame(DESKTOP);
+      await ev('document.querySelector("#lang [data-lang=en]").click()');
+      assert.match(await finishWith(), /Score saved to the leaderboard/);
+      const [p] = await ev('window.__posts');
+      assert.deepEqual(Object.keys(p).sort(), ['me', 'name', 'opp', 'ticket']);
+      assert.equal(p.ticket, 'TICKET-DE-TEST'); assert.deepEqual([p.me, p.opp], [4, 1]);
+    });
+  });
+
+  test('429 : message « trop de parties », en français et en anglais', async () => {
+    await withApi(() => ({ status: 429, body: { error: 'rate_limited', retry_after: 1800 } }), async () => {
+      await startAiGame(DESKTOP);
+      await lang('en'); assert.match(await finishWith(), /too many games recorded in a short time/);
+      await startAiGame(DESKTOP); await lang('fr'); assert.match(await finishWith(), /trop de parties enregistrées/);
+    });
+  });
+
+  test('403 name_taken : le joueur apprend que le pseudo est réservé', async () => {
+    await withApi(() => ({ status: 403, body: { error: 'name_taken' } }), async () => {
+      await startAiGame(DESKTOP); await lang('en');
+      assert.match(await finishWith(), /already reserved by another player/);
+      await startAiGame(DESKTOP); await lang('fr');
+      assert.match(await finishWith(), /déjà réservé par un autre joueur/);
+    });
+  });
+
+  test('autres refus (ticket, trop rapide, 500) : message générique ; réseau coupé : message dédié', async () => {
+    for (const [status, error] of [[403, 'ticket'], [422, 'too_fast'], [500, 'storage']]) {
+      await withApi(`() => ({ status: ${status}, body: { error: '${error}' } })`, async () => {         // code source : la fonction part dans la page
+        await startAiGame(DESKTOP); await lang('en');
+        assert.equal(await finishWith(), 'Score not saved.', `${status} ${error}`);
+      });
+    }
+    await withApi(() => 'network', async () => {
+      await startAiGame(DESKTOP); await lang('en');
+      assert.match(await finishWith(), /server unreachable/);
+    });
+  });
+
+  test('sans ticket (demande échouée), le jeu envoie quand même le score : c\'est au serveur de le refuser', async () => {
+    await withApi(() => ({ status: 403, body: { error: 'ticket' } }), async () => {
+      await startAiGame(DESKTOP);
+      await ev(`(() => { const G = window.__chickenDebug(); G.me = 4; G.opp = 0; G.ticket = Promise.resolve(null); window.__chickenDebug.finish(); })()`);
+      await sleep(250);
+      const [p] = await ev('window.__posts');
+      assert.equal(p.ticket, null);
+    });
+  });
+
+  test('le classement indique d\'où viennent les scores (non vérifiés contre l\'IA, Elo en multijoueur)', async () => {
+    await withBoardMock({ ai: [], multi: [] }, async () => {
+      await open(DESKTOP, '?e2e=1');
+      await lang('en');
+      assert.equal(await ev('document.getElementById("boardNote").textContent'), 'Scores reported by the players, unverified.');
+      await ev('document.querySelector("#boardTabs [data-board=multi]").click()');
+      assert.equal(await ev('document.getElementById("boardNote").textContent'), 'Games ranked by the server (Elo).');
+      await lang('fr');
+      assert.equal(await ev('document.getElementById("boardNote").textContent'), 'Parties classées par le serveur (Elo).');
+      await ev('document.querySelector("#boardTabs [data-board=ai]").click()');
+      assert.equal(await ev('document.getElementById("boardNote").textContent'), 'Scores déclarés par les joueurs, non vérifiés.');
+    });
+  });
+});
+
 describe('fin de match multijoueur : message de classement', () => {
   const setNet = (g) => ev(`(() => { const G = window.__chickenDebug(); Object.assign(G, ${JSON.stringify(g)}); return window.__chickenDebug.overMsg(); })()`);
   test('victoire classée (anglais) et ordinaux', async () => {
@@ -566,6 +670,8 @@ describe('lien GitHub', () => {
 
   test('au survol, le bouton se soulève (décalage et ombre agrandie)', async () => {
     await open(DESKTOP);
+    await ev('document.querySelector(".gh").scrollIntoView({ block: "center" })');     // hors écran si le classement est long (prod)
+    await sleep(100);
     const before = await info();
     assert.equal(before.transform, 'none');
     const r = await rectOf('.gh');

@@ -44,6 +44,7 @@ $c = filemtime(__DIR__ . '/assets/style.css');
       <button data-board="ai" class="sel" data-i18n="board.ai">Vs the AI</button>
       <button data-board="multi" data-i18n="board.multi">Multiplayer</button>
     </div>
+    <p id="boardNote" class="note"></p>
     <ol id="board"><li>…</li></ol>
   </section>
 
