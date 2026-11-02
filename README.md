@@ -89,3 +89,8 @@ docker-compose.yml   two services: website (8080) and WebSocket server (8081)
 | Catch | Click (or space bar) at the right moment |
 | Fullscreen | `F` |
 | Quit | `Esc` |
+
+## License
+
+[MIT](LICENSE). The MIT license covers this code only; it grants no rights over the original
+*Poulaga Challenge* game or its assets, which are not included.
