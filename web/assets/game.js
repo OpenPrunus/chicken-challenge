@@ -13,10 +13,39 @@ const $ = (id) => document.getElementById(id);
 const cv = $('cv'), ctx = cv.getContext('2d');
 // Logique pure (physique, visée, effet, capture, règles) : assets/engine.js, testée sous Node (tests/js).
 const E = window.ChickenEngine;
-const { clamp, proj, step, makeHen, makeHenAim, chaos, catchReach, canCatch, mirrorHen, CX, CY, HW, HH } = E;
-const W = cv.width, H = cv.height;
+const { clamp, proj, step, makeHen, makeHenAim, chaos, catchReach, canCatch, mirrorHen } = E;
+// Disposition courante (paysage 4:3 ou portrait plein écran) : mise à jour par applyLayout().
+let W = 800, H = 600, CX = 400, CY = 285, HW = 360, HH = 250, LS = 1, PORTRAIT = false;
 const aimPoint = () => E.aimFromPointer(G.mouse.px, G.mouse.py, G.mouse.touch);   // point du couloir visé (souris ou doigt)
 const COARSE = matchMedia('(pointer: coarse)').matches;                              // téléphone / tablette
+
+// La disposition suit le format de la fenêtre (rotation du téléphone comprise) : le canvas est redimensionné, le
+// décor reconstruit, et la partie en cours continue (tout est en coordonnées normalisées du tunnel).
+function applyLayout() {
+  const vv = window.visualViewport;
+  const l = E.computeLayout(vv ? vv.width : innerWidth, vv ? vv.height : innerHeight);
+  if (l.W !== W || l.H !== H || l.HH !== HH) {
+    E.setLayout(l);
+    ({ W, H, CX, CY, HW, HH } = l); LS = l.scale; PORTRAIT = l.portrait;
+    cv.width = W; cv.height = H;
+    if (G) G.bg = null;
+  }
+  fitCanvas();
+}
+function fitCanvas() {                                                                // plus grande taille qui tient dans la zone sûre
+  const game = $('game');
+  if (game.hidden) return;
+  const cs = getComputedStyle(game);
+  const aw = game.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const ah = game.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  const k = Math.min(aw / W, ah / H);
+  cv.style.width = Math.floor(W * k) + 'px'; cv.style.height = Math.floor(H * k) + 'px';
+}
+let layoutRaf = 0;
+const relayout = () => { cancelAnimationFrame(layoutRaf); layoutRaf = requestAnimationFrame(applyLayout); };
+addEventListener('resize', relayout);
+window.visualViewport?.addEventListener('resize', relayout);
+addEventListener('orientationchange', relayout);
 const flickSpin = () => E.flickSpin(G.mouse.hist, performance.now());   // effet donné par le coup de poignet
 const matchOver = () => E.matchOver(G.me, G.opp);
 const power = (t0) => E.power(performance.now() - t0);                   // jauge qui oscille 0 -> 1 -> 0
@@ -108,7 +137,6 @@ function leaveGame() {                                // en multijoueur on retou
 }
 function quit() {
   G = null;
-  mobileLock(false);
   if (document.fullscreenElement) document.exitFullscreen();
   document.body.classList.remove('playing');
   $('game').hidden = true; $('menu').hidden = false; loadBoard();
@@ -236,9 +264,9 @@ function start(netInfo) {
     oppX: 0, particles: [], splat: null, shake: 0, bounceFx: [],
   };
   document.body.classList.add('playing');
-  mobileLock(true);
   $('menu').hidden = true; $('lobby').hidden = true; $('invite').hidden = true;
   $('game').hidden = false; $('over').hidden = true;
+  applyLayout();                                       // portrait ou paysage selon la fenêtre, canvas ajusté à l'écran
   $('again').textContent = netInfo ? t('over.rematch') : t('over.again'); $('again').disabled = false;
   if (!looping) { looping = true; requestAnimationFrame(loop); }
 }
@@ -636,16 +664,16 @@ function drawHenInFlight() {
   c2shadow(sh);
   const front = h.dir < 0;                             // elle fonce vers nous : pleine face, ailes écartées
   const flap = 0.5 + 0.5 * Math.sin(G.time * 16);
-  drawHenArt(ctx, p.x, p.y, R_HEN * p.s, Math.sin(h.rot) * 0.35, front ? 'front' : 'back', { spread: front ? 0.55 : 0, flap });
+  drawHenArt(ctx, p.x, p.y, R_HEN * LS * p.s, Math.sin(h.rot) * 0.35, front ? 'front' : 'back', { spread: front ? 0.55 : 0, flap });
 }
 function c2shadow(sh) {
   ctx.fillStyle = '#6a5d3a55';
-  ctx.beginPath(); ctx.ellipse(sh.x, sh.y, 70 * sh.s * 1.3, 14 * sh.s * 1.3, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(sh.x, sh.y, 70 * LS * sh.s * 1.3, 14 * LS * sh.s * 1.3, 0, 0, 7); ctx.fill();
 }
 
 // poule tenue dans deux mains (après un rattrapage ou en attente de lancer)
 function drawHeld(x, y, z, alpha = 1) {
-  const p = proj(x, y, z), R = R_HEN * p.s * 0.8;
+  const p = proj(x, y, z), R = R_HEN * LS * p.s * 0.8;
   drawHenArt(ctx, p.x, p.y, R, 0, z < 0.5 ? 'back' : 'front', { alpha, spread: 0.3 });
   drawHand(ctx, p.x - R * 0.95, p.y + R * 0.25, R * 1.2, true, alpha, 1);
   drawHand(ctx, p.x + R * 0.95, p.y + R * 0.25, R * 1.2, true, alpha, -1);
@@ -679,17 +707,17 @@ function drawSplat() {
   if (s.near) {
     const x = clamp(s.x, 150, W - 150), y = clamp(s.y, 150, H - 130);
     const a = clamp(1.25 - s.t * 0.55, 0.35, 1);
-    burst(x, y, 300 * k, 11, '#fff3b0', Math.min(1, 1.6 - s.t * 2.6) * 0.9);
+    burst(x, y, 300 * LS * k, 11, '#fff3b0', Math.min(1, 1.6 - s.t * 2.6) * 0.9);
     // coulure sur la vitre
     ctx.fillStyle = `rgba(245,240,215,${0.55 * a})`;
     ctx.beginPath(); ctx.ellipse(x, y + 20, 330 * k, 250 * k, 0, 0, 7); ctx.fill();
-    drawHenArt(ctx, x, y, 240, 0, 'front', { sx: 1.25 + 0.35 * settle, sy: 0.72 - 0.25 * settle * k, dizzy: true, spread: 1, alpha: a });
-    ctx.save(); ctx.translate(CX + 250, 175); ctx.rotate(-0.12); ctx.globalAlpha = clamp(1.4 - s.t * 1.6, 0, 1);
+    drawHenArt(ctx, x, y, 240 * LS, 0, 'front', { sx: 1.25 + 0.35 * settle, sy: 0.72 - 0.25 * settle * k, dizzy: true, spread: 1, alpha: a });
+    ctx.save(); ctx.translate(clamp(CX + 250, 170, W - 170), 175); ctx.rotate(-0.12);          // toujours entièrement dans le canvas ctx.globalAlpha = clamp(1.4 - s.t * 1.6, 0, 1);
     ctx.font = '900 64px Impact, "Arial Black", sans-serif'; ctx.lineWidth = 10; ctx.lineJoin = 'round';
     ctx.strokeStyle = '#000'; ctx.fillStyle = '#ff4d2e'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.strokeText(t('splat' + s.word), 0, 0); ctx.fillText(t('splat' + s.word), 0, 0); ctx.restore();
   } else {
-    burst(s.x, s.y, 80 * k, 9, '#fff3b0', Math.min(1, 1.6 - s.t * 2.6) * 0.9);
+    burst(s.x, s.y, 80 * LS * k, 9, '#fff3b0', Math.min(1, 1.6 - s.t * 2.6) * 0.9);
     drawHenArt(ctx, s.x, s.y, 36, 0, 'front', { sx: 1.3, sy: 0.65, dizzy: true, spread: 1 });
   }
 }
@@ -714,18 +742,18 @@ function digits(x, y, n, align) {                      // score dans une case no
   ctx.fillStyle = '#fff'; ctx.font = `bold 32px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(String(n).padStart(2, '0'), x0 + w / 2, y + h / 2 + 2);
 }
-function tag(x, y, text, align) {
-  ctx.font = `bold 26px ${FONT}`;
-  const w = ctx.measureText(text).width + 22, x0 = align === 'right' ? x - w : x;
-  ctx.fillStyle = '#d5121b'; ctx.fillRect(x0, y, w, 32);
-  ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, x0 + w / 2, y + 17);
+function tag(x, y, text, align, size = 26) {
+  ctx.font = `bold ${size}px ${FONT}`;
+  const h = Math.round(size * 1.23), w = ctx.measureText(text).width + 22, x0 = align === 'right' ? x - w : x;
+  ctx.fillStyle = '#d5121b'; ctx.fillRect(x0, y, w, h);
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, x0 + w / 2, y + h / 2 + 1);
 }
 
 function drawActors() {
   // adversaire au fond du couloir : glisse sur sa ligne comme un pantin de carton
   const far = proj(G.oppX, 1, 0.93);
   const up = G.oppPose > 0 || (G.state === 'flight' && G.hen && G.hen.dir > 0);
-  drawChar(ctx, G.oppKind, far.x, far.y, 560 * far.s, up);
+  drawChar(ctx, G.oppKind, far.x, far.y, 560 * LS * far.s, up);
   if (G.state === 'serve' && G.turn === 'opp') drawHeld(G.oppX, 0.3, 0.93, 0.95);
   if (G.state === 'serve' && G.turn === 'me') drawHeld(G.hold ? G.hold.sx : startX(), 0.6, 0.02);
   if (G.state === 'caught' && G.held) drawHeld(G.held.x, G.held.y, G.held.z);
@@ -734,8 +762,8 @@ function drawActors() {
 
 // Texte du HUD qui tient dans maxW (on réduit la police, puis on tronque) : un pseudo de 15 lettres ne doit pas
 // passer sous les boutons Quitter / plein écran, placés en haut au centre sur mobile.
-function fitText(text, x, y, maxW) {
-  let size = 15;
+function fitText(text, x, y, maxW, start = 15) {
+  let size = start;
   ctx.font = `bold ${size}px ${FONT}`;
   while (size > 11 && ctx.measureText(text).width > maxW) { size--; ctx.font = `bold ${size}px ${FONT}`; }
   if (ctx.measureText(text).width > maxW) {
@@ -747,11 +775,19 @@ function fitText(text, x, y, maxW) {
 
 function drawHUD() {
   // scores : étiquettes rouges + cases noires
-  tag(14, 12, t('tag.you'), 'left'); digits(14, 48, G.me, 'left');
-  ctx.fillStyle = '#333'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; fitText(G.name.toUpperCase(), 84, 56, 160);
-  tag(W - 14, 12, t('tag.opp'), 'right'); digits(W - 14, 48, G.opp, 'right');
-  ctx.textAlign = 'right'; ctx.fillStyle = '#333'; fitText((G.oppName || t('char' + G.oppKind)).toUpperCase(), W - 84, 56, 140);
-  ctx.textAlign = 'left'; ctx.fillStyle = '#999'; ctx.font = '13px system-ui'; ctx.textBaseline = 'bottom';
+  if (PORTRAIT) {                                       // portrait : scores en haut, noms sous les cases (la barre du haut reste libre)
+    tag(14, 12, t('tag.you'), 'left', 20); digits(14, 44, G.me, 'left');
+    tag(W - 14, 12, t('tag.opp'), 'right', 20); digits(W - 14, 44, G.opp, 'right');
+    ctx.fillStyle = '#333'; ctx.textBaseline = 'top';
+    ctx.textAlign = 'left'; fitText(G.name.toUpperCase(), 14, 92, 190, 17);
+    ctx.textAlign = 'right'; fitText((G.oppName || t('char' + G.oppKind)).toUpperCase(), W - 14, 92, 190, 17);
+  } else {
+    tag(14, 12, t('tag.you'), 'left'); digits(14, 48, G.me, 'left');
+    ctx.fillStyle = '#333'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; fitText(G.name.toUpperCase(), 84, 56, 160);
+    tag(W - 14, 12, t('tag.opp'), 'right'); digits(W - 14, 48, G.opp, 'right');
+    ctx.textAlign = 'right'; ctx.fillStyle = '#333'; fitText((G.oppName || t('char' + G.oppKind)).toUpperCase(), W - 84, 56, 140);
+  }
+  ctx.textAlign = 'left'; ctx.fillStyle = '#999'; ctx.font = `${PORTRAIT ? 18 : 13}px system-ui`; ctx.textBaseline = 'bottom';
   ctx.fillText(t('game.rule'), 12, H - 8);
 
   // la main : curseur noir ; poing fermé après un clic raté
@@ -771,22 +807,23 @@ function drawHUD() {
       ctx.strokeStyle = '#000a'; ctx.lineWidth = 3; ctx.setLineDash([5, 5]);
       ctx.beginPath(); ctx.arc(m.px, m.py, 26, 0, 7); ctx.moveTo(m.px, m.py - 26); ctx.lineTo(m.px, m.py - E.TOUCH_AIM_OFFSET + 18); ctx.stroke(); ctx.setLineDash([]);
     }
-    ctx.fillStyle = '#fff'; ctx.fillRect(CX - 120, H - 38, 240, 22);
-    ctx.fillStyle = '#ff9a00'; ctx.fillRect(CX - 120, H - 38, 240 * pw, 22);
-    ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.strokeRect(CX - 120, H - 38, 240, 22);
+    const gw = PORTRAIT ? 300 : 240, gh = PORTRAIT ? 30 : 22, gy = H - gh - 16;
+    ctx.fillStyle = '#fff'; ctx.fillRect(CX - gw / 2, gy, gw, gh);
+    ctx.fillStyle = '#ff9a00'; ctx.fillRect(CX - gw / 2, gy, gw * pw, gh);
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.strokeRect(CX - gw / 2, gy, gw, gh);
   } else if (defending || G.state === 'caught') {
     // au doigt, la main n'apparaît que là où l'on vient de taper (poing fermé si raté, ou poule attrapée)
     if (!touchUI || G.cooldown > 0 || G.state === 'caught') drawHand(ctx, cp.x, cp.y, 150 * (1 + 0.3 * (h ? chaos(h) : 0)), G.cooldown > 0 || G.state === 'caught');
   } else if (!touchUI) {
     drawHand(ctx, cp.x, cp.y, 90, false, 0.85);
   }
-  ctx.textBaseline = 'middle'; ctx.textAlign = 'center'; ctx.font = `bold 22px ${FONT}`; ctx.fillStyle = '#222';
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'center'; ctx.font = `bold ${PORTRAIT ? 27 : 22}px ${FONT}`; ctx.fillStyle = '#222';
   if (G.state === 'serve') {
     ctx.fillText(G.turn === 'me'
       ? (G.hold ? t('hint.aim') : t(touchUI ? 'hint.serve.touch' : 'hint.serve'))
-      : t('hint.wait'), CX, H - 62);
+      : t('hint.wait'), CX, H - (PORTRAIT ? 86 : 62));
   } else if (G.state === 'flight' && G.hen.dir < 0) {
-    ctx.fillText(t(touchUI ? 'hint.catch.touch' : 'hint.catch'), CX, H - 62);
+    ctx.fillText(t(touchUI ? 'hint.catch.touch' : 'hint.catch'), CX, H - (PORTRAIT ? 86 : 62));
   }
   if (G.flashT > 0) {
     ctx.save(); ctx.translate(CX, CY - 40);
@@ -853,17 +890,12 @@ cv.addEventListener('contextmenu', (e) => e.preventDefault());                  
 // Le son n'est autorisé par les navigateurs mobiles qu'après un geste : on réveille l'AudioContext au premier toucher.
 addEventListener('pointerdown', () => { try { audio().resume(); } catch {} }, { passive: true });
 
-// Mobile : plein écran et paysage, quand l'appareil les permet (iOS n'autorise ni l'un ni l'autre sur iPhone).
+// Mobile : plein écran quand l'appareil le permet (iPhone : pas d'API plein écran dans Safari ; on joue alors en fenêtre).
 function mobileEnter() {
   if (!COARSE) return;
   document.documentElement.requestFullscreen?.().catch(() => {});
 }
-function mobileLock(on) {
-  if (!COARSE) return;
-  try { on ? screen.orientation?.lock?.('landscape')?.catch(() => {}) : screen.orientation?.unlock?.(); } catch {}
-}
 if (!document.documentElement.requestFullscreen) $('btnFs').hidden = true;
-$('rotateOk').onclick = () => document.body.classList.add('rotate-ok');
 addEventListener('keydown', (e) => {
   if (!G) return;
   if (e.code === 'Space') { e.preventDefault(); tryCatch(); }
@@ -1056,6 +1088,8 @@ setInterval(() => {
   const x = +(G.hold ? G.hold.sx : startX()).toFixed(2);
   if (Math.abs(x - G.posX) > 0.02) { G.posX = x; net.send({ t: 'pos', x }); }
 }, 100);
+
+applyLayout();
 
 // Tests de navigateur (tests/browser) : expose l'état du jeu uniquement si l'URL contient ?e2e.
 if (new URLSearchParams(location.search).has('e2e')) window.__chickenDebug = Object.assign(() => G, { aim: () => aimPoint(), overMsg: () => netOverMsg() });

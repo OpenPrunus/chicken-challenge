@@ -57,6 +57,90 @@ describe('visée (aimPoint)', () => {
   });
 });
 
+/** Joue `fn` avec une disposition donnée puis remet la disposition paysage par défaut. */
+function withLayout(layout, fn) {
+  E.setLayout(layout);
+  try { fn(); } finally { E.setLayout(E.computeLayout(1280, 800)); }
+}
+
+describe('disposition (paysage / portrait)', () => {
+  test('ordinateur et téléphone en paysage : 800x600, la poule garde sa géométrie d\'origine', () => {
+    for (const [w, h] of [[1280, 800], [1920, 1080], [844, 390], [1024, 768], [1180, 820]]) {
+      assert.deepEqual(E.computeLayout(w, h), { W: 800, H: 600, CX: 400, CY: 285, HW: 360, HH: 250, scale: 1, portrait: false }, `${w}x${h}`);
+    }
+  });
+  test('téléphone en portrait : canvas 600 de large dont la hauteur suit le format de l\'écran', () => {
+    const l = E.computeLayout(390, 844);
+    assert.equal(l.portrait, true);
+    assert.equal(l.W, 600);
+    assert.equal(l.H, Math.round(600 / (390 / 844)));
+    near(l.W / l.H, 390 / 844, 0.001, 'le canvas épouse le format de l\'écran');
+    assert.equal(l.CX, 300);
+  });
+  test('la hauteur du canvas portrait est bornée (tablette presque carrée, écran très allongé)', () => {
+    assert.equal(E.computeLayout(768, 1024).H, 800);           // tablette 3:4 -> 600 x 800
+    assert.equal(E.computeLayout(1000, 1000).portrait, true);  // fenêtre carrée : portrait, hauteur minimale
+    assert.equal(E.computeLayout(1000, 1000).H, 800);
+    assert.equal(E.computeLayout(300, 1200).H, 1400);          // très allongé : plafonné (bandes sur les côtés)
+  });
+  test('seuil entre paysage et portrait à 1.15', () => {
+    assert.equal(E.computeLayout(1150, 1000).portrait, false);
+    assert.equal(E.computeLayout(1149, 1000).portrait, true);
+  });
+  test('dimensions invalides : paysage par défaut', () => {
+    for (const [w, h] of [[0, 0], [1, 0], [0, 500], [-5, 100], [NaN, NaN]]) assert.equal(E.computeLayout(w, h).portrait, false, `${w}x${h}`);
+  });
+  test('portrait : le tunnel tient dans le canvas, avec une bande libre en haut pour les scores', () => {
+    for (const [w, h] of [[390, 844], [360, 640], [412, 915], [768, 1024], [320, 568], [430, 932]]) {
+      const l = E.computeLayout(w, h);
+      assert.ok(l.CX - l.HW >= 0 && l.CX + l.HW <= l.W, `largeur ${w}x${h}`);
+      assert.ok(l.CY - l.HH >= 60, `bande des scores libre (haut du tunnel à ${l.CY - l.HH}) ${w}x${h}`);
+      assert.ok(l.CY + l.HH <= l.H - 120, `zone du pouce en bas (${l.H - (l.CY + l.HH)} px) ${w}x${h}`);
+    }
+  });
+  test('setLayout change la projection et la visée ; le paysage par défaut revient proprement', () => {
+    const portrait = E.computeLayout(390, 844);
+    withLayout(portrait, () => {
+      for (const z of [0, 0.5, 1]) { const p = E.proj(0, 0, z); assert.deepEqual([p.x, p.y], [portrait.CX, portrait.CY]); }
+      const c = E.proj(1, 1, 0);
+      assert.deepEqual([c.x, c.y], [portrait.CX + portrait.HW, portrait.CY + portrait.HH]);
+      assert.equal(E.aimPoint(portrait.CX, portrait.CY).z, 1, 'viser le point de fuite = le fond');
+    });
+    const p = E.proj(1, 1, 0);                                  // retour au paysage
+    assert.deepEqual([p.x, p.y], [400 + 360, 285 + 250]);
+  });
+  test('invariant : le point visé se reprojette sous le doigt, en paysage comme en portrait', () => {
+    for (const [w, h] of [[1280, 800], [390, 844], [768, 1024]]) {
+      const l = E.computeLayout(w, h);
+      withLayout(l, () => {
+        for (let iu = -7; iu <= 7; iu++) for (let iv = -7; iv <= 7; iv++) {
+          const px = l.CX + (iu / 10) * l.HW, py = l.CY + (iv / 10) * l.HH;
+          const t = E.aimPoint(px, py);
+          const back = E.proj(t.x, t.y, t.z);
+          const m = Math.max(Math.abs(iu), Math.abs(iv)) / 10;
+          if (m >= 0.25 && m <= 0.76) { near(back.x, px, 1e-6, `x ${w}x${h} (${iu},${iv})`); near(back.y, py, 1e-6, `y ${w}x${h} (${iu},${iv})`); }
+        }
+      });
+    }
+  });
+  test('la physique de la poule ne dépend pas de la disposition', () => {
+    const run = () => fly(E.makeHenAim(0.2, 0.6, { x: -1, y: 0, z: 0.3 }, 1.2, 1.1)).h;
+    const a = run();
+    let b;
+    withLayout(E.computeLayout(390, 844), () => { b = run(); });
+    for (const k of ['x', 'y', 'z', 'vx', 'vy', 'speed', 'bounces']) assert.equal(a[k], b[k], k);
+  });
+  test('un doigt dans la zone du pouce (bas de l\'écran portrait) vise le sol devant soi, glisser vers le haut vise plus loin', () => {
+    const l = E.computeLayout(390, 844);
+    withLayout(l, () => {
+      const low = E.aimFromPointer(l.CX, l.H - 150, true);
+      const high = E.aimFromPointer(l.CX, l.CY, true);
+      assert.ok(low.z < high.z, `${low.z} < ${high.z}`);
+      assert.equal(high.z, 1);
+    });
+  });
+});
+
 describe('visée au doigt (aimFromPointer)', () => {
   test('à la souris, c\'est exactement aimPoint', () => {
     for (const [px, py] of [[400, 285], [200, 100], [650, 450], [10, 10]]) {

@@ -122,28 +122,34 @@ describe('textes mobiles', () => {
       assert.match(dict[l]['hint.catch.touch'], l === 'fr' ? /Tape/ : /Tap/);
     }
   });
-  test('les règles tactiles et le message de rotation sont traduits', () => {
-    for (const l of ['fr', 'en']) {
-      assert.match(dict[l]['rules.touch'], /<b>/);
-      assert.ok(dict[l]['rotate.msg'].length > 10 && dict[l]['rotate.anyway'].length > 3);
-    }
-    assert.match(t('rotate.msg'), /landscape/);
+  test('les règles tactiles sont traduites et mentionnent le portrait', () => {
+    for (const l of ['fr', 'en']) assert.match(dict[l]['rules.touch'], /<b>/);
+    assert.match(dict.fr['rules.touch'], /portrait/);
+    assert.match(dict.en['rules.touch'], /portrait/);
   });
-  test('index.php contient la bannière de rotation et les règles tactiles', () => {
+  test('le portrait est jouable : plus d\'invite de rotation ni de verrouillage d\'orientation', () => {
+    const html = read('web/index.php'), js = read('web/assets/game.js'), css = read('web/assets/style.css');
+    for (const needle of ['id="rotate"', 'rotateOk', 'rotate-ok']) assert.ok(!html.includes(needle) && !js.includes(needle) && !css.includes(needle), needle);
+    assert.ok(!/orientation\??\.lock|screen\.orientation/.test(js), 'pas de verrouillage d\'orientation');
+    for (const l of ['fr', 'en']) assert.ok(!Object.keys(dict[l]).some((k) => k.startsWith('rotate.')), `${l} : clés rotate.* supprimées`);
+  });
+  test('index.php est prêt pour mobile (encoche, règles tactiles)', () => {
     const html = read('web/index.php');
-    for (const needle of ['id="rotate"', 'id="rotateOk"', 'data-i18n-html="rules.touch"', 'viewport-fit=cover']) {
-      assert.ok(html.includes(needle), needle);
-    }
+    for (const needle of ['data-i18n-html="rules.touch"', 'viewport-fit=cover', 'name="theme-color"']) assert.ok(html.includes(needle), needle);
   });
-  test('le CSS prévoit l\'orientation portrait, les écrans étroits et les cibles tactiles', () => {
+  test('le CSS prévoit les écrans étroits, les cibles tactiles et les zones sûres', () => {
     const css = read('web/assets/style.css');
-    assert.match(css, /orientation:\s*portrait/);
     assert.match(css, /max-width:\s*560px/);
-    assert.match(css, /max-width:\s*900px\)\s*\{[^}]*#lang\s*\{[^}]*position:\s*static/, 'FR/EN ne chevauche pas le titre en paysage');
     assert.match(css, /pointer:\s*coarse/);
     assert.match(css, /min-height:\s*44px/);
-    assert.match(css, /100dvh/);
+    assert.match(css, /safe-area-inset-top/);
     assert.match(css, /touch-action:\s*none/);
+  });
+  test('game.js adapte le canvas au format de l\'écran (rotation comprise)', () => {
+    const js = read('web/assets/game.js');
+    for (const needle of ['computeLayout', 'applyLayout', 'fitCanvas', "addEventListener('resize'", "addEventListener('orientationchange'", 'visualViewport']) {
+      assert.ok(js.includes(needle), needle);
+    }
   });
 });
 

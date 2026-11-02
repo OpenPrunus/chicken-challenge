@@ -35,10 +35,11 @@ Whoever fails to catch it takes the bird right in the face: **GOAL!**
 - Effects: chicken flattened against the screen, feathers, screen shake, synthesized chicken
   sound effects.
 - Fullscreen (`F` key), quit with `Esc`.
-- **Mobile friendly**: responsive menu, landscape layout that uses the full screen height (with a prompt to rotate
-  the device), tap-sized buttons, and touch controls: put a finger down to lock your position, drag to aim (the
+- **Mobile friendly, in portrait or landscape**: responsive menu, and a game view that adapts to the screen shape: a
+  tall vertical tunnel filling the whole screen in portrait (scores on top, thumb zone at the bottom), the 4:3 view
+  in landscape, switching live when you rotate the device. Tap-sized buttons and touch controls: put a finger down to lock your position, drag to aim (the
   crosshair appears above the finger so it stays visible), release to throw, flick sideways for spin, and tap the
-  chicken to catch it. Fullscreen and landscape lock are requested automatically where the browser allows it.
+  chicken to catch it. Fullscreen is requested automatically where the browser allows it.
 - **English and French interface**: the language is detected from the browser (French if the
   browser is set to French, English otherwise) and can be switched with the **FR / EN** buttons
   on the menu; the choice is remembered.

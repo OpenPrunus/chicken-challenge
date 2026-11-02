@@ -64,12 +64,6 @@ $c = filemtime(__DIR__ . '/assets/style.css');
     <button id="invNo" data-i18n="invite.no">Decline</button>
   </div>
 
-  <div id="rotate" role="alert">
-    <div class="phone" aria-hidden="true">📱</div>
-    <p data-i18n="rotate.msg">Rotate your device to landscape to play.</p>
-    <button id="rotateOk" data-i18n="rotate.anyway">Play anyway</button>
-  </div>
-
   <section id="game" hidden>
     <canvas id="cv" width="800" height="600"></canvas>
     <div id="bar">

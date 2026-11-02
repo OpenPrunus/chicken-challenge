@@ -7,16 +7,30 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  // Repère du canvas 800x600 : le plan proche du tunnel est un rectangle de demi-taille HW x HH.
-  const W = 800, H = 600, CX = W / 2, CY = 285, HW = 360, HH = 250;
+  // Disposition du canvas. Le plan proche du tunnel est un rectangle de centre (CX, CY) et de demi-taille HW x HH,
+  // le point de fuite est (CX, CY). Paysage : 800x600 (4:3). Portrait : 600 x H, H suivant le format de l'écran,
+  // avec un tunnel vertical, les scores en haut et la zone du pouce en bas. `scale` règle la taille des personnages.
+  const LANDSCAPE = { W: 800, H: 600, CX: 400, CY: 285, HW: 360, HH: 250, scale: 1, portrait: false };
+  const L = { ...LANDSCAPE };                          // disposition courante (modifiée par setLayout)
+  const { W, H, CX, CY, HW, HH } = LANDSCAPE;          // constantes de la disposition paysage par défaut
   const GRAV = 0.5;                                    // gravité (unités tunnel / s²)
 
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
+  // Disposition adaptée à une fenêtre vw x vh : paysage (4:3, bandes sur les côtés) sauf écran nettement plus haut
+  // que large, où l'on passe en portrait pour occuper tout l'écran.
+  function computeLayout(vw, vh) {
+    const aspect = vw > 0 && vh > 0 ? vw / vh : 4 / 3;
+    if (aspect >= 1.15) return { ...LANDSCAPE };
+    const Wp = 600, Hp = clamp(Math.round(Wp / aspect), 800, 1400);
+    return { W: Wp, H: Hp, CX: Wp / 2, CY: Math.round(Hp * 0.40), HW: 270, HH: Math.round(clamp(Hp * 0.30, 240, 420)), scale: 0.75, portrait: true };
+  }
+  function setLayout(layout) { Object.assign(L, layout); }
+
   // Projection en perspective : z = 0 (plan proche, joueur) -> z = 1 (fond du tunnel, adversaire).
   function proj(x, y, z) {
     const s = 1 / (1 + 3 * z);
-    return { x: CX + x * HW * s, y: CY + y * HH * s, s };
+    return { x: L.CX + x * L.HW * s, y: L.CY + y * L.HH * s, s };
   }
 
   // Poule lancée sans cible précise : (a, b) ∈ [-1, 1] donnent la direction ; a = b = 0 -> pile au centre.
@@ -41,7 +55,7 @@
 
   // Point visé : première surface (mur, plafond, sol ou fond) touchée par le rayon caméra -> pixel (px, py).
   function aimPoint(px, py) {
-    const u = clamp((px - CX) / HW, -0.97, 0.97), v = clamp((py - CY) / HH, -0.97, 0.97);
+    const u = clamp((px - L.CX) / L.HW, -0.97, 0.97), v = clamp((py - L.CY) / L.HH, -0.97, 0.97);
     const D = clamp(1 / Math.max(Math.abs(u), Math.abs(v), 0.25), 1.3, 4);   // distance (1 = plan proche, 4 = fond)
     return { x: clamp(u * D, -1, 1), y: clamp(v * D, -1, 1), z: (D - 1) / 3 };
   }
@@ -119,7 +133,7 @@
   }
 
   return {
-    W, H, CX, CY, HW, HH, GRAV, TOUCH_AIM_OFFSET, clamp, proj, makeHen, makeHenAim, aimPoint, aimFromPointer, step,
+    W, H, CX, CY, HW, HH, layout: L, computeLayout, setLayout, GRAV, TOUCH_AIM_OFFSET, clamp, proj, makeHen, makeHenAim, aimPoint, aimFromPointer, step,
     flickSpin, power, chaos, catchReach, canCatch, mirrorHen, matchOver,
   };
 });

@@ -105,13 +105,15 @@ const state = () => ev(`(() => { const G = window.__chickenDebug(); return G && 
 /** Point du canvas (repère 800x600) -> point de la fenêtre. */
 async function canvasToViewport(cx, cy) {
   const r = await rectOf('#cv');
-  return { x: r.x + cx * r.w / E.W, y: r.y + cy * r.h / E.H };
+  const d = await ev('({ w: document.getElementById("cv").width, h: document.getElementById("cv").height })');   // 800x600 ou 600xH
+  return { x: r.x + cx * r.w / d.w, y: r.y + cy * r.h / d.h };
 }
 async function startAiGame(device) {
   await open(device);
   await ev('document.getElementById("pseudo").value = "mobile"');
   await tapSel('#play');
   await waitFor(() => ev('!!window.__chickenDebug && !!window.__chickenDebug()'), 5000, 'partie démarrée');
+  E.setLayout(E.computeLayout(device.w, device.h));            // même disposition que la page, pour calculer les positions attendues
 }
 const near = (a, b, eps, msg) => assert.ok(Math.abs(a - b) <= eps, `${msg || ''} attendu ≈ ${b}, obtenu ${a}`);
 
@@ -172,19 +174,69 @@ describe('affichage mobile', () => {
     assert.ok(h < 40, `bouton de langue : ${h}px`);
   });
 
-  test('portrait : la partie propose de tourner l\'appareil, puis « Jouer quand même » masque l\'invite', async () => {
+  test('portrait : le jeu occupe tout l\'écran (canvas vertical), sans invite de rotation', async () => {
     await startAiGame(PHONE_PORTRAIT);
     assert.equal(await ev('document.body.classList.contains("playing")'), true);
-    assert.equal(await style('#rotate', 'display'), 'flex');
-    assert.match(await ev('document.querySelector("#rotate p").textContent'), /landscape|paysage/);
-    await tapSel('#rotateOk');
-    await sleep(100);
-    assert.equal(await style('#rotate', 'display'), 'none');
+    assert.equal(await ev('document.getElementById("rotate")'), null, 'plus d\'invite de rotation');
+    const l = E.computeLayout(390, 844);
+    const dims = await ev('({ w: document.getElementById("cv").width, h: document.getElementById("cv").height })');
+    assert.deepEqual(dims, { w: l.W, h: l.H }, 'canvas vertical 600 x H');
+    const r = await rectOf('#cv'), vp = await ev('({ w: innerWidth, h: innerHeight })');
+    assert.ok(r.w >= vp.w * 0.97, `largeur utilisée ${r.w}/${vp.w}`);
+    assert.ok(r.h >= vp.h * 0.97, `hauteur utilisée ${r.h}/${vp.h} (le 4:3 n'en aurait utilisé que ${(vp.w * 0.75).toFixed(0)})`);
+    assert.ok(r.w <= vp.w + 0.5 && r.h <= vp.h + 0.5, 'ne dépasse pas de l\'écran');
+    near(r.w / r.h, dims.w / dims.h, 0.01, 'ratio du canvas');
+    assert.equal(await ev('document.documentElement.scrollWidth <= innerWidth'), true);
   });
 
-  test('paysage : pas d\'invite, le canvas 4:3 occupe toute la hauteur et reste centré', async () => {
+  test('portrait : la barre du haut tient entre les scores et ne cache pas les noms', async () => {
+    await startAiGame(PHONE_PORTRAIT);
+    const bar = await rectOf('#bar'), cv = await rectOf('#cv'), k = cv.w / E.layout.W;     // px CSS par px canvas
+    near(bar.cx, cv.cx, 6, 'barre centrée');
+    assert.ok((bar.y + bar.h - cv.y) / k <= 92, `la barre (jusqu'à ${(bar.y + bar.h - cv.y) / k} px canvas) doit finir au-dessus des noms (92)`);
+    assert.ok((bar.h) >= 43.5, 'tactile');
+  });
+
+  test('rotation en pleine partie : la disposition suit, la partie continue', async () => {
+    await startAiGame(PHONE_PORTRAIT);
+    await ev('(() => { const G = window.__chickenDebug(); G.me = 2; G.opp = 1; })()');
+    const dims = () => ev('({ w: document.getElementById("cv").width, h: document.getElementById("cv").height })');
+    assert.equal((await dims()).w, 600);
+
+    await call('Emulation.setDeviceMetricsOverride', { width: 844, height: 390, deviceScaleFactor: 2, mobile: true });   // on tourne le téléphone
+    await waitFor(async () => (await dims()).w === 800, 3000, 'paysage appliqué');
+    let r = await rectOf('#cv'), vp = await ev('({ w: innerWidth, h: innerHeight })');
+    near(r.w / r.h, 4 / 3, 0.01, 'retour au 4:3');
+    assert.ok(r.h >= vp.h * 0.97, 'hauteur pleine en paysage');
+    let s = await state();
+    assert.deepEqual([s.state, s.turn], ['serve', 'me'], 'la partie continue');
+    assert.deepEqual(await ev('(() => { const G = window.__chickenDebug(); return [G.me, G.opp]; })()'), [2, 1], 'le score est conservé');
+
+    await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });   // et on le remet droit
+    await waitFor(async () => (await dims()).w === 600, 3000, 'portrait réappliqué');
+    r = await rectOf('#cv'); vp = await ev('({ w: innerWidth, h: innerHeight })');
+    assert.ok(r.w >= vp.w * 0.97 && r.h >= vp.h * 0.97, 'plein écran à nouveau');
+    // et le jeu reste jouable après la rotation : un tir au doigt part bien
+    E.setLayout(E.computeLayout(390, 844));
+    const a = await canvasToViewport(E.layout.CX, E.layout.CY + E.layout.HH * 0.9);
+    await touch('touchStart', [{ ...a, id: 1 }]); await sleep(60);
+    await touch('touchEnd', []); await sleep(80);
+    s = await state();
+    assert.equal(s.state, 'flight', 'le lancer part après rotation');
+  });
+
+  test('le décor est reconstruit à chaque rotation (pas d\'image étirée)', async () => {
+    await startAiGame(PHONE_PORTRAIT);
+    const bgW = () => ev('(() => { const G = window.__chickenDebug(); return G.bg ? G.bg.width : null; })()');
+    await sleep(200);
+    assert.equal(await bgW(), 600, 'décor portrait');
+    await call('Emulation.setDeviceMetricsOverride', { width: 844, height: 390, deviceScaleFactor: 2, mobile: true });
+    await waitFor(async () => (await bgW()) === 800, 3000, 'décor paysage');
+  });
+
+  test('paysage : le canvas 4:3 occupe toute la hauteur et reste centré', async () => {
     await startAiGame(PHONE_LANDSCAPE);
-    assert.equal(await style('#rotate', 'display'), 'none');
+    assert.equal(await ev('document.getElementById("rotate")'), null);
     const r = await rectOf('#cv');
     const vp = await ev('({ w: innerWidth, h: innerHeight })');
     near(r.w / r.h, 4 / 3, 0.01, 'ratio');
@@ -217,20 +269,24 @@ describe('affichage mobile', () => {
 });
 
 // --------------------------------------------------------------------------------------------------- commandes
-describe('commandes au doigt', () => {
-  test('poser le doigt verrouille la position, glisser vise avec le décalage tactile, relâcher lance', async () => {
-    await startAiGame(PHONE_LANDSCAPE);
-    assert.deepEqual([(await state()).state, (await state()).turn], ['serve', 'me']);
+for (const [orientation, DEVICE] of [['paysage', PHONE_LANDSCAPE], ['portrait', PHONE_PORTRAIT]]) describe(`commandes au doigt (${orientation})`, () => {
+  const lay = () => E.layout;
+  const hold = () => { const L = lay(); return { downX: L.CX - 0.3 * L.HW, downY: L.CY + 0.95 * L.HH, toX: L.CX - 0.7 * L.HW, toY: L.CY + 0.3 * L.HH }; };
 
-    const down = await canvasToViewport(300, 450);
+  test('poser le doigt verrouille la position, glisser vise avec le décalage tactile, relâcher lance', async () => {
+    await startAiGame(DEVICE);
+    assert.deepEqual([(await state()).state, (await state()).turn], ['serve', 'me']);
+    const L = lay(), h = hold();
+    const down = await canvasToViewport(h.downX, h.downY);
     await touch('touchStart', [{ ...down, id: 1 }]);
     await sleep(60);
     let s = await state();
     assert.ok(s.hold, 'tir armé au toucher');
     assert.equal(s.mouse.touch, true);
-    near(s.hold.sx, E.clamp((300 - E.CX) / E.HW, -1, 1) * 0.8, 0.02, 'position du joueur verrouillée sous le doigt');
+    const sx = E.clamp((h.downX - L.CX) / L.HW, -1, 1) * 0.8;
+    near(s.hold.sx, sx, 0.02, 'position du joueur verrouillée sous le doigt');
 
-    const to = await canvasToViewport(220, 340);
+    const to = await canvasToViewport(h.toX, h.toY);
     for (let i = 1; i <= 6; i++) { await touch('touchMove', [{ x: down.x + (to.x - down.x) * i / 6, y: down.y + (to.y - down.y) * i / 6, id: 1 }]); await sleep(25); }
     await sleep(120);                                           // doigt immobile : pas d'effet parasite
     s = await state();
@@ -239,7 +295,7 @@ describe('commandes au doigt', () => {
     for (const k of ['x', 'y', 'z']) near(aim[k], expected[k], 1e-9, `visée ${k}`);
     const noOffset = E.aimPoint(s.mouse.px, s.mouse.py);
     assert.ok(Math.abs(aim.y - noOffset.y) > 0.01 || Math.abs(aim.z - noOffset.z) > 0.01, 'le décalage tactile est appliqué');
-    near(s.hold.sx, E.clamp((300 - E.CX) / E.HW, -1, 1) * 0.8, 0.02, 'la position reste verrouillée pendant la visée');
+    near(s.hold.sx, sx, 0.02, 'la position reste verrouillée pendant la visée');
 
     await touch('touchEnd', []);
     await sleep(80);
@@ -249,9 +305,24 @@ describe('commandes au doigt', () => {
     assert.equal(s.hen.dir, 1, 'la poule part vers l\'adversaire');
   });
 
+  test('un doigt posé dans la zone du pouce (bas de l\'écran) vise le sol devant, glisser vers le haut vise plus loin', async () => {
+    await startAiGame(DEVICE);
+    const L = lay();
+    const low = await canvasToViewport(L.CX, L.H - 120);
+    await touch('touchStart', [{ ...low, id: 1 }]); await sleep(60);
+    const near_ = await ev('window.__chickenDebug.aim()');
+    const high = await canvasToViewport(L.CX, L.CY + 0.2 * L.HH);
+    for (let i = 1; i <= 5; i++) { await touch('touchMove', [{ x: low.x, y: low.y + (high.y - low.y) * i / 5, id: 1 }]); await sleep(25); }
+    await sleep(100);
+    const far = await ev('window.__chickenDebug.aim()');
+    assert.ok(far.z > near_.z, `glisser vers le haut vise plus loin (${near_.z} -> ${far.z})`);
+    await touch('touchEnd', []);
+  });
+
   test('un second doigt ne déplace ni n\'annule la visée', async () => {
-    await startAiGame(PHONE_LANDSCAPE);
-    const a = await canvasToViewport(350, 420), b = await canvasToViewport(650, 200);
+    await startAiGame(DEVICE);
+    const L = lay();
+    const a = await canvasToViewport(L.CX - 0.2 * L.HW, L.CY + 0.8 * L.HH), b = await canvasToViewport(L.CX + 0.6 * L.HW, L.CY - 0.4 * L.HH);
     await touch('touchStart', [{ ...a, id: 1 }]);
     await sleep(50);
     const before = await state();
@@ -266,8 +337,9 @@ describe('commandes au doigt', () => {
   });
 
   test('un geste système (touchcancel) annule le tir sans lancer', async () => {
-    await startAiGame(PHONE_LANDSCAPE);
-    const a = await canvasToViewport(400, 400);
+    await startAiGame(DEVICE);
+    const L = lay();
+    const a = await canvasToViewport(L.CX, L.CY + 0.8 * L.HH);
     await touch('touchStart', [{ ...a, id: 1 }]);
     await sleep(50);
     assert.ok((await state()).hold);
@@ -278,10 +350,12 @@ describe('commandes au doigt', () => {
     assert.equal(s.state, 'serve', 'aucun lancer');
   });
 
+  const setIncoming = (z) => ev(`(() => { const G = window.__chickenDebug(); G.state = 'flight'; G.turn = 'opp'; G.cooldown = 0;
+      G.hen = { z: ${z}, dir: -1, x: 0.1, y: 0.05, vx: 0, vy: 0, spin: 0, speed: 0.0001, speed0: 0.8, spin0: 0, rot: 0, bounces: 0 }; })()`);
+
   test('attraper : taper sur la poule au bon moment la rattrape', async () => {
-    await startAiGame(PHONE_LANDSCAPE);
-    await ev(`(() => { const G = window.__chickenDebug(); G.state = 'flight'; G.turn = 'opp'; G.cooldown = 0;
-      G.hen = { z: 0.2, dir: -1, x: 0.1, y: 0.05, vx: 0, vy: 0, spin: 0, speed: 0.0001, speed0: 0.8, spin0: 0, rot: 0, bounces: 0 }; })()`);
+    await startAiGame(DEVICE);
+    await setIncoming(0.2);
     const p = E.proj(0.1, 0.05, 0.2);
     const tap = await canvasToViewport(p.x, p.y);
     await tapAt(tap.x, tap.y);
@@ -290,10 +364,10 @@ describe('commandes au doigt', () => {
   });
 
   test('taper loin de la poule la rate : le poing se ferme et le prochain essai est bloqué un instant', async () => {
-    await startAiGame(PHONE_LANDSCAPE);
-    await ev(`(() => { const G = window.__chickenDebug(); G.state = 'flight'; G.turn = 'opp'; G.cooldown = 0;
-      G.hen = { z: 0.2, dir: -1, x: 0.1, y: 0.05, vx: 0, vy: 0, spin: 0, speed: 0.0001, speed0: 0.8, spin0: 0, rot: 0, bounces: 0 }; })()`);
-    const far = await canvasToViewport(700, 520);
+    await startAiGame(DEVICE);
+    await setIncoming(0.2);
+    const L = lay();
+    const far = await canvasToViewport(L.W - 60, L.H - 100);
     await tapAt(far.x, far.y);
     await sleep(60);
     const s = await state();
@@ -302,16 +376,17 @@ describe('commandes au doigt', () => {
   });
 
   test('taper trop tôt (poule encore loin) ne rattrape pas', async () => {
-    await startAiGame(PHONE_LANDSCAPE);
-    await ev(`(() => { const G = window.__chickenDebug(); G.state = 'flight'; G.turn = 'opp'; G.cooldown = 0;
-      G.hen = { z: 0.6, dir: -1, x: 0, y: 0, vx: 0, vy: 0, spin: 0, speed: 0.0001, speed0: 0.8, spin0: 0, rot: 0, bounces: 0 }; })()`);
-    const p = E.proj(0, 0, 0.6);
+    await startAiGame(DEVICE);
+    await setIncoming(0.6);
+    const p = E.proj(0.1, 0.05, 0.6);
     const tap = await canvasToViewport(p.x, p.y);
     await tapAt(tap.x, tap.y);
     await sleep(60);
     assert.equal((await state()).state, 'flight');
   });
+});
 
+describe('commandes à la souris', () => {
   test('à la souris (ordinateur), rien ne change : clic maintenu, visée sans décalage, relâcher lance', async () => {
     await startAiGame(DESKTOP);
     const a = await canvasToViewport(400, 420), b = await canvasToViewport(300, 250);

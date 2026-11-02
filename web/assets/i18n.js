@@ -9,10 +9,9 @@ const DICT = {
     'char0': 'Le Fermier', 'char1': 'Le Cochon', 'char2': 'Le Punk', 'char3': 'La Mamie',
     'menu.play': 'JOUER CONTRE L\'IA', 'menu.mp': 'MULTIJOUEUR',
     'rules.title': 'Règles',
-    'rules.touch': '<b>Sur téléphone ou tablette</b> (de préférence en mode paysage) : pose le doigt pour te placer et verrouiller ta position, ' +
+    'rules.touch': '<b>Sur téléphone ou tablette</b> (en portrait comme en paysage) : pose le doigt pour te placer et verrouiller ta position, ' +
       '<b>glisse</b> pour viser (le viseur apparaît au-dessus du doigt), puis <b>relâche</b>. Un geste sec de côté au moment de relâcher donne de l\'effet. ' +
       'Pour attraper la poule, <b>tape dessus</b> au bon moment.',
-    'rotate.msg': 'Tourne ton appareil en mode paysage pour jouer.', 'rotate.anyway': 'Jouer quand même',
     'rules.body': 'Deux joueurs se lancent une poule dans un tunnel. <b>Déplace la souris</b> pour te placer, ' +
       'puis <b>clique et maintiens</b> : ta position est verrouillée, une jauge oscille et la souris sert à ' +
       '<b>viser un point du couloir</b> (mur, plafond, sol, fond) : la poule y rebondit. <b>Relâche</b> pour ' +
@@ -66,10 +65,9 @@ const DICT = {
     'char0': 'The Farmer', 'char1': 'The Pig', 'char2': 'The Punk', 'char3': 'Granny',
     'menu.play': 'PLAY VS THE AI', 'menu.mp': 'MULTIPLAYER',
     'rules.title': 'Rules',
-    'rules.touch': '<b>On a phone or tablet</b> (landscape works best): touch to position yourself and lock your position, ' +
+    'rules.touch': '<b>On a phone or tablet</b> (portrait and landscape both work): touch to position yourself and lock your position, ' +
       '<b>drag</b> to aim (the crosshair appears above your finger), then <b>release</b>. A sharp sideways flick as you let go gives it spin. ' +
       'To catch the chicken, <b>tap it</b> at the right moment.',
-    'rotate.msg': 'Rotate your device to landscape to play.', 'rotate.anyway': 'Play anyway',
     'rules.body': 'Two players throw a chicken at each other down a tunnel. <b>Move the mouse</b> to position ' +
       'yourself, then <b>click and hold</b>: your position is locked, a gauge oscillates and the mouse ' +
       '<b>aims at a spot in the tunnel</b> (wall, ceiling, floor, back): the chicken bounces off it. ' +
