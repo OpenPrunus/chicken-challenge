@@ -4,7 +4,7 @@
 
 const DICT = {
   fr: {
-    'foot.github': 'Voir le projet sur GitHub',
+    'foot.github': 'Voir le projet sur GitHub', 'foot.games': '← Tous les jeux',
     'menu.nick': 'Pseudo', 'menu.nick.ph': 'Ton pseudo', 'menu.char': 'Choisis ton personnage', 'menu.level': 'Niveau',
     'level0': 'Collégien', 'level1': 'Flic', 'level2': 'Commissaire',
     'char0': 'Le Fermier', 'char1': 'Le Cochon', 'char2': 'Le Punk', 'char3': 'La Mamie',
@@ -67,7 +67,7 @@ const DICT = {
     'over.reducedNone': 'Aucun gain : tu as déjà affronté cet adversaire trop souvent aujourd\'hui.',
   },
   en: {
-    'foot.github': 'View the project on GitHub',
+    'foot.github': 'View the project on GitHub', 'foot.games': '← All games',
     'menu.nick': 'Nickname', 'menu.nick.ph': 'Your nickname', 'menu.char': 'Choose your character', 'menu.level': 'Level',
     'level0': 'Schoolkid', 'level1': 'Cop', 'level2': 'Chief',
     'char0': 'The Farmer', 'char1': 'The Pig', 'char2': 'The Punk', 'char3': 'Granny',

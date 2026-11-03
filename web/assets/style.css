@@ -87,6 +87,12 @@ html { -webkit-text-size-adjust:100%; }
 .gh:hover, .gh:focus-visible { transform:translate(-2px,-2px); box-shadow:6px 6px 0 var(--acc); }
 .gh:active { transform:translate(2px,2px); box-shadow:1px 1px 0 var(--acc); }
 .gh:focus-visible { outline:3px solid var(--acc); outline-offset:3px; }
+.all { display:inline-flex; align-items:center; padding:9px 18px; color:#111; text-decoration:none; border:3px solid #111; border-radius:999px; font-weight:800; font-size:.9rem;
+       background:#fff; transition:transform .12s ease, box-shadow .12s ease; }
+.all:hover, .all:focus-visible { transform:translate(-2px,-2px); box-shadow:4px 4px 0 var(--acc); }
+.all:focus-visible { outline:3px solid var(--acc); outline-offset:3px; }
+@media (prefers-reduced-motion: reduce) { .all { transition:none; } }
+@media (pointer: coarse) { .all { min-height:44px; } }
 .license { font-size:.75rem; font-weight:800; color:var(--mut); border:2px solid var(--mut); border-radius:6px; padding:1px 6px; letter-spacing:.5px; }
 @media (prefers-reduced-motion: reduce) { .gh { transition:none; } }
 @media (pointer: coarse) { .gh { min-height:44px; } }

@@ -116,6 +116,21 @@ describe('ordinaux', () => {
   });
 });
 
+describe('lien « Tous les jeux »', () => {
+  const html = read('web/index.php');
+  const link = html.match(/<a class="all"[^>]*>/)?.[0] || '';
+  test('renvoie vers la page des jeux, dans le même onglet', () => {
+    assert.match(link, /href="https:\/\/games\.prunus\.dev"/);
+    assert.ok(!/target=/.test(link), 'navigation normale : on revient à la page des jeux');
+  });
+  test('le texte est traduit en français et en anglais', () => {
+    const { dict } = load({ languages: ['en-US'] }).I18N;
+    assert.match(html, /data-i18n="foot\.games"/);
+    assert.equal(dict.fr['foot.games'], '← Tous les jeux');
+    assert.equal(dict.en['foot.games'], '← All games');
+  });
+});
+
 describe('lien GitHub', () => {
   const html = read('web/index.php');
   const link = html.match(/<a class="gh"[^>]*>/)?.[0] || '';
