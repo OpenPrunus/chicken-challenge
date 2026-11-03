@@ -122,14 +122,17 @@
   function henRadius(z, boost = 1) { return HEN_RADIUS * L.scale * boost / (1 + 3 * z); }
 
   // Capture : la main (mx, my) est exprimée dans le repère du plan proche, la poule (h.x, h.y) dans celui du tunnel.
-  // On accepte la main près de la position « d'arrivée » de la poule (x, y) -- le comportement d'origine -- OU près de
-  // l'endroit où elle est dessinée (x·s, y·s) : taper sur ce qu'on voit doit toujours la rattraper, même dans un coin
-  // du tunnel (sinon elle paraît à portée sans l'être).
-  function canCatch(h, mx, my) {
+  // On accepte la main près de la position « d'arrivée » de la poule (x, y) -- la règle d'origine -- OU sur la poule telle
+  // qu'elle est DESSINÉE (x·s, y·s, à la taille visible de la poule) : taper sur ce qu'on voit doit toujours la rattraper,
+  // même dans un coin du tunnel. La seconde zone est volontairement petite (la taille de la poule) : rester immobile à
+  // un endroit fixe ne rattrape pas plus de lancers qu'avant (≈ 73 % au centre).
+  const HEN_VISUAL_UNITS = HEN_RADIUS / 360;           // rayon de la poule au plan proche / demi-largeur du tunnel, identique en paysage et en portrait
+  function canCatch(h, mx, my, boost = 1) {
     const reach = catchReach(h);
     if (h.z >= reach.zmax) return false;
     const s = 1 / (1 + 3 * h.z);
-    return Math.min(Math.hypot(h.x - mx, h.y - my), Math.hypot(h.x * s - mx, h.y * s - my)) < reach.r;
+    if (Math.hypot(h.x - mx, h.y - my) < reach.r) return true;
+    return Math.hypot(h.x * s - mx, h.y * s - my) < HEN_VISUAL_UNITS * boost * s * 1.15;
   }
 
   // Perspective inversée (multijoueur) : la poule lancée par l'adversaire part du fond, gauche/droite en miroir.
@@ -147,6 +150,6 @@
 
   return {
     W, H, CX, CY, HW, HH, layout: L, computeLayout, setLayout, GRAV, TOUCH_AIM_OFFSET, clamp, proj, makeHen, makeHenAim, aimPoint, aimFromPointer, step,
-    flickSpin, power, chaos, catchReach, canCatch, henBoost, henRadius, HEN_RADIUS, mirrorHen, matchOver,
+    flickSpin, power, chaos, catchReach, canCatch, henBoost, henRadius, HEN_RADIUS, HEN_VISUAL_UNITS, mirrorHen, matchOver,
   };
 });

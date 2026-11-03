@@ -363,6 +363,7 @@ describe('taille de la poule sur petit écran', () => {
   test('on tape sur ce qu\'on voit : taper sur la poule dessinée la rattrape toujours, partout dans le tunnel (coins compris)', () => {
     for (const [w, h] of [[1280, 800], [844, 390], [390, 844], [768, 1024]]) {
       const l = E.computeLayout(w, h);
+      const boost = E.henBoost(l.W * Math.min(w / l.W, h / l.H));              // l'agrandissement de CET écran
       E.setLayout(l);
       try {
         for (const hen of [{ bounces: 0, spin0: 0, speed0: 0.8 }, { bounces: 3, spin0: 2, speed0: 1.5 }]) {
@@ -371,12 +372,51 @@ describe('taille de la poule sur petit écran', () => {
             for (const x of [-1, -0.7, 0, 0.7, 1]) for (const y of [-1, -0.5, 0, 0.5, 1]) {
               const p = E.proj(x, y, z);                                          // où la poule est dessinée
               const mx = (p.x - l.CX) / l.HW, my = (p.y - l.CY) / l.HH;             // la main posée exactement dessus
-              assert.ok(E.canCatch({ ...hen, z, x, y }, mx, my), `${w}x${h} poule (${x},${y}) z=${z.toFixed(3)} : tap sur la poule dessinée raté`);
+              assert.ok(E.canCatch({ ...hen, z, x, y }, mx, my, boost), `${w}x${h} poule (${x},${y}) z=${z.toFixed(3)} : tap sur la poule dessinée raté`);
             }
           }
         }
       } finally { E.setLayout(E.computeLayout(1280, 800)); }
     }
+  });
+  test('la zone « poule dessinée » est celle de sa taille visible : elle grandit avec l\'agrandissement du téléphone', () => {
+    const l = E.computeLayout(390, 844); E.setLayout(l);
+    try {
+      const hen = { bounces: 0, spin0: 0, speed0: 0.8, z: 0.24, x: 1, y: 1 };      // dans un coin : la règle d'origine ne l'attrape pas (0.59 > 0.42)
+      const s = 1 / (1 + 3 * hen.z);
+      // on s'écarte de la poule dessinée vers le centre du tunnel (dx < 0) : seule la zone « poule dessinée » peut accepter
+      const drawn = (d) => E.canCatch(hen, hen.x * s - d, hen.y * s, 1);
+      const drawn2 = (d) => E.canCatch(hen, hen.x * s - d, hen.y * s, 2);
+      assert.equal(E.canCatch(hen, 0, 0), false, 'le centre est trop loin');
+      const visual1 = E.HEN_VISUAL_UNITS * 1 * s * 1.15, visual2 = E.HEN_VISUAL_UNITS * 2 * s * 1.15;
+      assert.ok(drawn(visual1 * 0.9) && !drawn(visual1 * 1.1), 'sur PC : le rayon de la poule dessinée');
+      assert.ok(drawn2(visual2 * 0.9) && !drawn2(visual2 * 1.1), 'sur téléphone : deux fois plus grand');
+      assert.ok(visual2 > visual1 * 1.9);
+    } finally { E.setLayout(E.computeLayout(1280, 800)); }
+  });
+  test('garde-fou de difficulté : rester immobile ne rattrape pas plus qu\'avec la règle d\'origine (≤ +6 points)', () => {
+    const fx = require('../fixtures/physics-vectors.json');
+    const original = (h, mx, my) => { const r = E.catchReach(h); return h.z < r.zmax && Math.hypot(h.x - mx, h.y - my) < r.r; };
+    for (const [boost, spot] of [[1, [0, 0]], [2, [0, 0]], [1, [0, 0.5]], [2, [-0.5, 0]]]) {
+      let orig = 0, now = 0;
+      for (const w of fx.legit) {
+        const d = E.mirrorHen(w); let a = false, b = false;
+        for (let i = 0; i < 2000 && d.z > 0; i++) { E.step(d, 1 / 120); if (d.z <= 0) break; a ||= original(d, spot[0], spot[1]); b ||= E.canCatch(d, spot[0], spot[1], boost); }
+        orig += a ? 1 : 0; now += b ? 1 : 0;
+      }
+      const gain = (100 * (now - orig)) / fx.legit.length;
+      assert.ok(gain >= 0 && gain <= 6, `main fixe ${JSON.stringify(spot)}, boost ${boost} : +${gain.toFixed(1)} points (origine ${(100 * orig / fx.legit.length).toFixed(0)} %)`);
+    }
+  });
+  test('rester immobile au centre ne rattrape jamais tout : au moins 15 % des lancers y échappent', () => {
+    const fx = require('../fixtures/physics-vectors.json');
+    let caught = 0;
+    for (const w of fx.legit) {
+      const d = E.mirrorHen(w); let ok = false;
+      for (let i = 0; i < 2000 && d.z > 0; i++) { E.step(d, 1 / 120); if (d.z <= 0) break; ok ||= E.canCatch(d, 0, 0, 2); }
+      caught += ok ? 1 : 0;
+    }
+    assert.ok(caught / fx.legit.length <= 0.85, `${(100 * caught / fx.legit.length).toFixed(0)} % attrapés sans bouger`);
   });
   test('régression : avant, taper sur une poule dessinée dans un coin la ratait (distance 0.59 > 0.42)', () => {
     const l = E.computeLayout(1280, 800); E.setLayout(l);

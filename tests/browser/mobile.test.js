@@ -749,6 +749,40 @@ describe('taille de la poule sur téléphone', () => {
   });
 });
 
+describe('multijoueur : le serveur refuse une capture annoncée', () => {
+  const state2 = () => ev(`(() => { const G = window.__chickenDebug(); return { state: G.state, me: G.me, opp: G.opp, turn: G.turn, flash: G.flash }; })()`);
+  async function setupCaught() {
+    await startAiGame(DESKTOP);
+    await ev(`(() => { const G = window.__chickenDebug(); G.mode = 'net'; G.state = 'caught'; G.turn = 'me'; G.localResolved = true; G.hen = null; G.me = 0; G.opp = 0; G.held = { x: 0, y: 0, z: 0.02 }; })()`);
+  }
+  test('sans correction : mon client a déjà joué la scène, le verdict du serveur ne la rejoue pas', async () => {
+    await setupCaught();
+    await ev(`window.__chickenDebug.onResult({ t: 'result', kind: 'catch', role: 'defender', by: 'you', you: 0, opp: 0, next: 'you' })`);
+    assert.deepEqual(await state2(), { state: 'caught', me: 0, opp: 0, turn: 'me', flash: await ev('window.__chickenDebug().flash') });
+  });
+  test('corrected : le point est donné au lanceur et la scène « but encaissé » est rejouée', async () => {
+    await setupCaught();
+    await ev(`window.__chickenDebug.onResult({ t: 'result', kind: 'goal', role: 'defender', by: 'opp', you: 0, opp: 1, next: 'opp', corrected: true })`);
+    const s = await state2();
+    assert.deepEqual([s.state, s.me, s.opp, s.turn, s.flash], ['goal', 0, 1, 'opp', 'goal']);
+    assert.equal(await ev('window.__chickenDebug().localResolved'), false);
+  });
+  test('un but « corrected » vu par le lanceur ne fait que jouer le but (il ne savait rien de la capture)', async () => {
+    await startAiGame(DESKTOP);
+    await ev(`(() => { const G = window.__chickenDebug(); G.mode = 'net'; G.state = 'flight'; G.turn = 'me'; G.hen = { z: 1, dir: 1, x: 0, y: 0, vx: 0, vy: 0, spin: 0, speed: 0.001, speed0: 1, spin0: 0, rot: 0, bounces: 0 }; })()`);
+    await ev(`window.__chickenDebug.onResult({ t: 'result', kind: 'goal', role: 'thrower', by: 'you', you: 1, opp: 0, next: 'you', corrected: true })`);
+    const s = await state2();
+    assert.deepEqual([s.state, s.me, s.opp, s.turn], ['goal', 1, 0, 'me']);
+  });
+  test('la capture envoyée au serveur annonce la position de la main', async () => {
+    await startAiGame(PHONE_LANDSCAPE);
+    const sent = await ev(`(() => { window.__sent = []; const w = window.WebSocket; return true; })()`);
+    assert.equal(sent, true);
+    const js = await (await fetch(`${BASE}/assets/game.js`)).text();
+    assert.match(js, /net\.send\(\{ t: 'catch', x: \+m\.x\.toFixed\(3\), y: \+m\.y\.toFixed\(3\) \}\)/, 'tryCatch envoie x et y');
+  });
+});
+
 describe('accès de debug', () => {
   test('n\'est exposé que si l\'URL contient ?e2e', async () => {
     await open(DESKTOP, '');

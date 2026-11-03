@@ -104,7 +104,7 @@ async function matchUp(A, B) {
   const [server, def] = mA.serve ? [A, B] : [B, A];
   return { server, def, mA, mB };
 }
-const HEN = { x: 0.2, y: 0.6, vx: -1.5, vy: -0.3, spin: 1.1, speed: 1.0 };
+const { HEN, legitHen, honestCatch, catchHonestly } = require('./helpers.js');
 const withClients = (fn) => async (t) => {
   const cs = [];
   const mk = async (...a) => { const c = await join(...a); cs.push(c); return c; };
@@ -324,11 +324,16 @@ describe('déroulement d\'un match', () => {
     def.send({ t: 'throw', hen: HEN });
     assert.ok(await server.none(type('throw')));
   }));
-  test('lancer valide : relayé au défenseur, numéro d\'échange, valeurs bornées', withClients(async (mk) => {
+  test('lancer valide : relayé tel quel au défenseur avec son numéro d\'échange ; un lancer hors des possibilités du jeu est refusé', withClients(async (mk) => {
     const { server, def } = await matchUp(await mk('a'), await mk('b'));
-    server.send({ t: 'throw', hen: { ...HEN, x: 5, speed: 99, spin: -50, vx: 1e9 } });
+    for (const cheat of [{ ...HEN, x: 5, speed: 99, spin: -50, vx: 1e9 }, { ...HEN, speed: 1.9 }, { ...HEN, spin: 2.6 }, { ...HEN, vx: 60 }, { ...HEN, y: 0.2 }]) {
+      server.send({ t: 'throw', hen: cheat });
+      assert.ok(await def.none(type('throw'), 80), `refusé : ${JSON.stringify(cheat)}`);
+    }
+    server.send({ t: 'throw', hen: HEN });
     const th = await def.wait(type('throw'));
-    assert.deepEqual([th.hen.x, th.hen.speed, th.hen.spin, th.hen.vx, th.rally], [1, 1.9, -2.6, 60, 1]);
+    assert.deepEqual(th.hen, HEN, 'transmis sans modification');
+    assert.equal(th.rally, 1);
     server.send({ t: 'throw', hen: HEN });
     assert.ok(await def.none(type('throw')), 'pas de second lancer pendant le vol');
   }));
@@ -347,10 +352,9 @@ describe('déroulement d\'un match', () => {
     server.send({ t: 'throw', hen: HEN }); await def.wait(type('throw'));
     def.send({ t: 'catch' });
     assert.ok(await server.none(type('result'), 120), 'catch < 150 ms refusé');
-    await sleep(200);
     server.send({ t: 'catch' });                                // le lanceur ne peut pas se rattraper lui-même
     assert.ok(await def.none(type('result'), 120));
-    def.send({ t: 'catch' });
+    await catchHonestly(def, HEN, -250);                         // (déjà ~250 ms écoulés)
     const rs = await server.wait(type('result')), rd = await def.wait(type('result'));
     assert.deepEqual([rs.kind, rs.role, rs.by, rs.next, rs.you, rs.opp], ['catch', 'thrower', 'opp', 'opp', 0, 0]);
     assert.deepEqual([rd.kind, rd.role, rd.by, rd.next], ['catch', 'defender', 'you', 'you']);
@@ -413,8 +417,7 @@ describe('déroulement d\'un match', () => {
       let r;
       if (holder !== winner) {
         holder.send({ t: 'throw', hen: HEN }); await other().wait(type('throw'));
-        await sleep(170);                                       // un rattrapage doit durer > 150 ms
-        other().send({ t: 'catch' });
+        await catchHonestly(other(), HEN);
         await holder.wait(type('result')); await other().wait(type('result'));
         holder = winner;
       }

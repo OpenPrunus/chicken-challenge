@@ -337,10 +337,10 @@ function tryCatch() {
   const h = G.hen;
   if (!G || G.state !== 'flight' || !h || h.dir > 0 || G.cooldown > 0) return;
   const m = G.mouse;
-  const ok = canCatch(h, m.x, m.y);
+  const ok = canCatch(h, m.x, m.y, HB);
   if (ok) {
     G.held = { x: h.x, y: h.y, z: 0.02 }; G.hen = null; G.state = 'caught'; G.timer = 0.4; G.turn = 'me'; sndCatch();
-    if (G.mode === 'net') { G.localResolved = true; net.send({ t: 'catch' }); }
+    if (G.mode === 'net') { G.localResolved = true; net.send({ t: 'catch', x: +m.x.toFixed(3), y: +m.y.toFixed(3) }); }     // le serveur vérifie que la capture était possible
     G.flash = 'caught'; G.flashT = 0.6; G.flashWho = 'me';
   } else {
     G.cooldown = 0.5;           // trop tôt : les mains se ferment dans le vide
@@ -1079,7 +1079,7 @@ function onNet(m) {
 // pour ne pas subir le lag) : dans ce cas on ne fait que resynchroniser les scores.
 function onResult(m) {
   if (!G || G.mode !== 'net' || G.state === 'over') return;
-  const alreadyPlayed = m.role === 'defender' && G.localResolved;
+  const alreadyPlayed = m.role === 'defender' && G.localResolved && !m.corrected;       // corrected : le serveur a refusé ma capture, on rejoue la scène
   if (!alreadyPlayed) {
     if (m.kind === 'catch') {                          // l'adversaire a rattrapé ma poule
       const h = G.hen;
@@ -1110,5 +1110,5 @@ setInterval(() => {
 applyLayout();
 
 // Tests de navigateur (tests/browser) : expose l'état du jeu uniquement si l'URL contient ?e2e.
-if (new URLSearchParams(location.search).has('e2e')) window.__chickenDebug = Object.assign(() => G, { aim: () => aimPoint(), overMsg: () => netOverMsg(), henBoost: () => HB, finish: () => finish() });
+if (new URLSearchParams(location.search).has('e2e')) window.__chickenDebug = Object.assign(() => G, { aim: () => aimPoint(), overMsg: () => netOverMsg(), henBoost: () => HB, finish: () => finish(), onResult: (m) => onResult(m) });
 })();

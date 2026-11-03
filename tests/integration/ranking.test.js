@@ -16,7 +16,7 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..', '..');
 const PHP = process.env.PHP_BIN || 'php';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const HEN = { x: 0.2, y: 0.6, vx: -1.5, vy: -0.3, spin: 1.1, speed: 1.0 };
+const { HEN, catchHonestly } = require('./helpers.js');
 const type = (t) => (m) => m.t === t;
 const token = () => crypto.randomBytes(16).toString('hex');
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
@@ -102,8 +102,7 @@ async function winMatch({ server, def }, winner) {
   for (let i = 0; i < 4; i++) {
     if (holder !== winner) {
       holder.send({ t: 'throw', hen: HEN }); await winner.wait(type('throw'));
-      await sleep(170);                                         // un rattrapage doit durer plus de 150 ms
-      winner.send({ t: 'catch' });
+      await catchHonestly(winner, HEN);
       await holder.wait(type('result')); await winner.wait(type('result'));
       holder = winner;
     }

@@ -11,7 +11,8 @@
     "test": "npm run test:unit && npm run test:integration && npm run test:browser",
     "test:unit": "node --test \"tests/js/*.test.js\"",
     "test:integration": "node --test --test-timeout=120000 \"tests/integration/*.test.js\"",
-    "lint": "node --check web/assets/engine.js && node --check web/assets/game.js && node --check web/assets/i18n.js && node --check tests/browser/mobile.test.js && node --check tests/integration/protocol.test.js && node --check tests/integration/ranking.test.js",
-    "test:browser": "node --test --test-timeout=120000 \"tests/browser/*.test.js\""
+    "lint": "node --check web/assets/engine.js && node --check web/assets/game.js && node --check web/assets/i18n.js && node --check tests/browser/mobile.test.js && node --check tests/fixtures/generate.js && node --check tests/integration/protocol.test.js && node --check tests/integration/ranking.test.js",
+    "test:browser": "node --test --test-timeout=120000 \"tests/browser/*.test.js\"",
+    "fixtures": "node tests/fixtures/generate.js"
   }
 }

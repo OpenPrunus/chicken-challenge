@@ -13,6 +13,7 @@ declare(strict_types=1);
 set_time_limit(0);
 
 require __DIR__ . '/lib.php';
+require __DIR__ . '/physics.php';
 
 const MAX_CLIENTS = 500;
 const IDLE_TIMEOUT = 90;     // s sans aucun message : déconnexion
@@ -20,6 +21,12 @@ const IDLE_TIMEOUT = 90;     // s sans aucun message : déconnexion
 define('INVITE_TTL', envNum('CHICKEN_INVITE_TTL', 20));         // avant expiration d'un défi
 define('FLIGHT_TIMEOUT', envNum('CHICKEN_FLIGHT_TIMEOUT', 10)); // sans verdict du défenseur, le lanceur marque
 define('SERVE_TIMEOUT', envNum('CHICKEN_SERVE_TIMEOUT', 30));   // un joueur qui ne lance pas perd le point
+// Arbitrage des captures : le défenseur annonce « attrapée » avec la position de sa main ; le serveur rejoue la trajectoire.
+//   enforce (défaut) : une capture impossible devient un point pour le lanceur ; log : on accepte mais on journalise ; off : on croit le client.
+define('CATCH_MODE', in_array(getenv('CHICKEN_CATCH_CHECK'), ['enforce', 'log', 'off'], true) ? getenv('CHICKEN_CATCH_CHECK') : 'enforce');
+define('CATCH_TIME_SLACK', envNum('CHICKEN_CATCH_SLACK', 1.0));     // tolérance de temps (latence aller-retour) en secondes
+// Lancers : le serveur n'accepte que ce que l'interface du jeu peut produire (mêmes modes que ci-dessus).
+define('THROW_MODE', in_array(getenv('CHICKEN_THROW_CHECK'), ['enforce', 'log', 'off'], true) ? getenv('CHICKEN_THROW_CHECK') : 'enforce');
 
 $port = (int)(getenv('WS_PORT') ?: 8081);
 $allowed = array_values(array_filter(array_map('trim', explode(',', (string)getenv('WS_ALLOWED_ORIGINS')))));
@@ -154,7 +161,7 @@ function recordMatchResult(int $mid, int $winner, int $loser): void {
     logm("Ranked: {$clients[$winner]['name']} {$res['winner']['delta']} ({$res['winner']['rating']}) / {$clients[$loser]['name']} {$res['loser']['delta']} ({$res['loser']['rating']})");
 }
 
-function doGoal(int $mid, int $scorer): void {
+function doGoal(int $mid, int $scorer, bool $corrected = false): void {
     global $matches;
     $m = &$matches[$mid];
     $m['score'][$scorer]++;
@@ -162,7 +169,7 @@ function doGoal(int $mid, int $scorer): void {
     $over = matchOver($m['score'][$m['a']], $m['score'][$m['b']]);
     $m['state'] = $over ? 'over' : 'serve';
     $m['t'] = microtime(true) + 2.5;            // délai pour l'animation du but
-    foreach ([$m['a'], $m['b']] as $id) send($id, resultFor($m, $id, 'goal', $scorer, $over));
+    foreach ([$m['a'], $m['b']] as $id) send($id, resultFor($m, $id, 'goal', $scorer, $over) + ($corrected ? ['corrected' => true] : []));   // corrected : le serveur a refusé une capture annoncée
     if ($over) {
         logm("Match #$mid finished: {$m['score'][$m['a']]}-{$m['score'][$m['b']]}");
         $winner = $m['score'][$m['a']] > $m['score'][$m['b']] ? $m['a'] : $m['b'];
@@ -189,12 +196,23 @@ function handleMatchMsg(int $id, string $t, array $msg): void {
                 'spin' => num($h['spin'] ?? null, -2.6, 2.6), 'speed' => num($h['speed'] ?? null, 0.3, 1.9),
             ];
             if (in_array(null, $hen, true)) return;
-            $m['state'] = 'flight'; $m['thrower'] = $id; $m['t'] = $now; $m['rally']++;
+            if (THROW_MODE !== 'off' && !throwIsLegit($hen)) {                    // plus rapide, plus fort ou plus tordu que ce que le jeu permet
+                logm(sprintf('%s lancer %s : %s', THROW_MODE === 'enforce' ? 'REFUSED' : 'suspect', $clients[$id]['name'], json_encode($hen)));
+                if (THROW_MODE === 'enforce') return;
+            }
+            $m['state'] = 'flight'; $m['thrower'] = $id; $m['t'] = $now; $m['rally']++; $m['hen'] = $hen;
             send($o, ['t' => 'throw', 'hen' => $hen, 'rally' => $m['rally']]);
             break;
 
         case 'catch':
             if ($m['state'] !== 'flight' || $m['thrower'] === $id || $now - $m['t'] < 0.15) return;
+            if (CATCH_MODE !== 'off') {
+                $plausible = catchIsPlausible($m['hen'], $now - $m['t'], $msg['x'] ?? null, $msg['y'] ?? null, CATCH_TIME_SLACK);
+                if (!$plausible) {
+                    logm(sprintf('%s capture %s : %s (%.2f s après le lancer, main %s)', CATCH_MODE === 'enforce' ? 'REFUSED' : 'suspect', $clients[$id]['name'], 'impossible', $now - $m['t'], json_encode([$msg['x'] ?? null, $msg['y'] ?? null])));
+                    if (CATCH_MODE === 'enforce') { doGoal($mid, $m['thrower'], true); return; }          // un vrai raté : le lanceur marque
+                }
+            }
             $m['turn'] = $id; $m['state'] = 'serve'; $m['t'] = $now;
             foreach ([$m['a'], $m['b']] as $p) send($p, resultFor($m, $p, 'catch', $id, false));
             break;
