@@ -62,6 +62,9 @@ const DICT = {
     'over.forfeit': '🏆 VICTOIRE PAR FORFAIT', 'over.oppLeft': 'L\'adversaire a quitté la partie.',
     'over.rematchAsk': 'L\'adversaire veut une revanche !', 'over.waitRematch': 'En attente de l\'adversaire…',
     'over.rated': 'Classement : {rating} pts ({delta}) — {rank}{ord} sur {total}', 'over.unranked': 'Partie non classée.',
+    'over.unrated.too_fast': 'Match non classé : terminé trop vite pour être crédible.',
+    'over.reduced': 'Gains réduits : tu as déjà affronté cet adversaire plusieurs fois aujourd\'hui.',
+    'over.reducedNone': 'Aucun gain : tu as déjà affronté cet adversaire trop souvent aujourd\'hui.',
   },
   en: {
     'foot.github': 'View the project on GitHub',
@@ -122,6 +125,9 @@ const DICT = {
     'over.forfeit': '🏆 WIN BY FORFEIT', 'over.oppLeft': 'Your opponent left the game.',
     'over.rematchAsk': 'Your opponent wants a rematch!', 'over.waitRematch': 'Waiting for your opponent…',
     'over.rated': 'Ranking: {rating} pts ({delta}) — {rank}{ord} of {total}', 'over.unranked': 'Unranked game.',
+    'over.unrated.too_fast': 'Unranked: finished too quickly to be credible.',
+    'over.reduced': 'Reduced gains: you have already played this opponent several times today.',
+    'over.reducedNone': 'No gains: you have already played this opponent too often today.',
   },
 };
 

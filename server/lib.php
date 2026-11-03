@@ -6,10 +6,11 @@ declare(strict_types=1);
 
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
-/** Lit un nombre positif dans l'environnement, sinon retourne la valeur par défaut. */
-function envNum(string $name, float $default): float {
+/** Lit un nombre positif dans l'environnement, sinon retourne la valeur par défaut. `$allowZero` : 0 est alors une valeur valide (désactive un contrôle). */
+function envNum(string $name, float $default, bool $allowZero = false): float {
     $v = getenv($name);
-    return ($v !== false && is_numeric($v) && (float)$v > 0) ? (float)$v : $default;
+    if ($v === false || !is_numeric($v)) return $default;
+    return ((float)$v > 0 || ($allowZero && (float)$v === 0.0)) ? (float)$v : $default;
 }
 
 /** Valeur du Sec-WebSocket-Accept pour une clé client (RFC 6455, §4.2.2). */
@@ -131,7 +132,7 @@ function nameReservedByOther(array $players, string $name, string $hash): bool {
  *
  * @param array<string, array<string, mixed>> $players
  */
-function recordRankedMatch(array $players, array $winner, array $loser, int $gfW, int $gfL): ?array {
+function recordRankedMatch(array $players, array $winner, array $loser, int $gfW, int $gfL, float $factor = 1.0): ?array {
     [$nw, $hw] = $winner; [$nl, $hl] = $loser;
     if ($hw === '' || $hl === '' || $hw === $hl) return null;
     if (nameReservedByOther($players, $nw, $hw) || nameReservedByOther($players, $nl, $hl)) return null;
@@ -142,8 +143,9 @@ function recordRankedMatch(array $players, array $winner, array $loser, int $gfW
     $w['th'] = $hw; $l['th'] = $hl;                               // réserve les pseudos au premier match classé
 
     $expectedW = ratingExpected((float)$w['rating'], (float)$l['rating']);
-    $newW = max(RATING_FLOOR, (int)round($w['rating'] + ratingK((int)$w['played']) * (1 - $expectedW)));
-    $newL = max(RATING_FLOOR, (int)round($l['rating'] - ratingK((int)$l['played']) * (1 - $expectedW)));
+    // $factor (0 à 1) réduit les gains et les pertes quand les deux mêmes joueurs se rencontrent trop souvent (voir pairFactor)
+    $newW = max(RATING_FLOOR, (int)round($w['rating'] + $factor * ratingK((int)$w['played']) * (1 - $expectedW)));
+    $newL = max(RATING_FLOOR, (int)round($l['rating'] - $factor * ratingK((int)$l['played']) * (1 - $expectedW)));
     $deltaW = $newW - (int)$w['rating']; $deltaL = $newL - (int)$l['rating'];
 
     $w['rating'] = $newW; $w['played']++; $w['wins']++; $w['gf'] += $gfW; $w['ga'] += $gfL; $w['name'] = $nw;
@@ -152,8 +154,8 @@ function recordRankedMatch(array $players, array $winner, array $loser, int $gfW
 
     return [
         'players' => $players,
-        'winner' => ['rating' => $newW, 'delta' => $deltaW, 'rank' => rankOf($players, $kw)],
-        'loser'  => ['rating' => $newL, 'delta' => $deltaL, 'rank' => rankOf($players, $kl)],
+        'winner' => ['rating' => $newW, 'delta' => $deltaW, 'rank' => rankOf($players, $kw), 'factor' => $factor],
+        'loser'  => ['rating' => $newL, 'delta' => $deltaL, 'rank' => rankOf($players, $kl), 'factor' => $factor],
     ];
 }
 
@@ -170,6 +172,45 @@ function rankOf(array $players, string $key): int {
     return $rank;
 }
 
+// ------------------------------------------------------------------------------------------------------------
+// Anti-collusion : deux joueurs (ou un même joueur avec deux navigateurs) qui se renvoient la victoire pour gonfler
+// leur note. Les gains diminuent à chaque rencontre du même couple dans la journée : 1, 1, 0.5, 0.25, puis plus rien.
+// ------------------------------------------------------------------------------------------------------------
+
+/** Clé d'un couple de joueurs (ordre indifférent) ; ne garde que le début des hashes. */
+function pairKey(string $hashA, string $hashB): string {
+    $p = [$hashA, $hashB];
+    sort($p);
+    return substr($p[0], 0, 16) . '|' . substr($p[1], 0, 16);
+}
+
+/**
+ * Facteur d'évolution de la note pour ce couple selon les matchs classés déjà joués dans la fenêtre, et nouvel état
+ * (avec ce match ajouté, les entrées expirées purgées). Retourne [facteur, état].
+ *
+ * @param array<string, list<int>> $pairs
+ * @return array{0: float, 1: array<string, list<int>>}
+ */
+function pairFactor(array $pairs, string $key, int $now, int $window = 86400): array {
+    foreach ($pairs as $k => $ts) {
+        $ts = array_values(array_filter($ts, fn($t) => $t > $now - $window));
+        if ($ts) $pairs[$k] = $ts; else unset($pairs[$k]);
+    }
+    $previous = count($pairs[$key] ?? []);
+    $factor = [1.0, 1.0, 0.5, 0.25][$previous] ?? 0.0;
+    $pairs[$key][] = $now;
+    return [$factor, $pairs];
+}
+
+/** Charge classement et couples ; vides si le fichier est absent ou illisible. */
+function loadRanking(string $file): array {
+    $d = is_file($file) ? json_decode((string)file_get_contents($file), true) : null;
+    return [
+        'players' => (is_array($d) && is_array($d['players'] ?? null)) ? $d['players'] : [],
+        'pairs' => (is_array($d) && is_array($d['pairs'] ?? null)) ? $d['pairs'] : [],
+    ];
+}
+
 /** Charge la table des joueurs ; vide si le fichier est absent ou illisible. */
 function loadPlayers(string $file): array {
     $d = is_file($file) ? json_decode((string)file_get_contents($file), true) : null;
@@ -177,9 +218,9 @@ function loadPlayers(string $file): array {
 }
 
 /** Écrit la table de façon atomique (fichier temporaire puis rename) : un lecteur ne voit jamais un fichier tronqué. */
-function savePlayers(string $file, array $players): bool {
+function savePlayers(string $file, array $players, array $pairs = []): bool {
     $tmp = $file . '.tmp';
-    $json = json_encode(['version' => 1, 'players' => (object)$players], JSON_UNESCAPED_UNICODE);
+    $json = json_encode(['version' => 1, 'players' => (object)$players, 'pairs' => (object)$pairs], JSON_UNESCAPED_UNICODE);
     if ($json === false || @file_put_contents($tmp, $json, LOCK_EX) === false) return false;
     if (!@rename($tmp, $file)) { @unlink($tmp); return false; }
     return true;

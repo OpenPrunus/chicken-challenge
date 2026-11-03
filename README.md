@@ -111,10 +111,25 @@ only its SHA-256 hash. The first player to finish a ranked match under a nicknam
 use it, even when its owner is offline. Players without a valid token (other clients, invalid tokens) are guests and
 their matches are not ranked, and two tabs of the same browser cannot rank against each other.
 
+### Anti-cheat
+
+What the server does, and what it cannot do:
+
+| Where | Protection |
+| --- | --- |
+| Multiplayer scores | Counted by the server only; clients cannot send scores, results or "game over". |
+| Catches | The defender announces "caught" **with the position of the hand**; the server replays the chicken's trajectory (same physics as the game, `server/physics.php`) and accepts the catch only if it was possible, within a network tolerance. An impossible catch becomes a point for the thrower. |
+| Throws | Accepted only if the game's interface could have produced them (start position, speed, spin and a reachable aim point). |
+| Collusion | A ranked match cannot end faster than the game allows (1.5 s per point). Between the same two players, rating gains drop to ×1, ×1, ×0.5, ×0.25, then 0 within 24 hours. Two tabs of the same browser never rank against each other. |
+| Nicknames | Reserved by the first browser token that finishes a ranked game under it. |
+| AI leaderboard | A game starts with a signed single-use ticket; a score is accepted only with it, after a minimum plausible duration (2 s per point), within a per-hour limit per IP and per token, under a reserved nickname. |
+
+Honest limits: the AI leaderboard is **self-reported** (the game runs in the browser, so it cannot be verified: the protections make cheating slow, rate-limited and nominative, not impossible, and the interface says "unverified"). A client that *computes* the chicken's trajectory and places the hand exactly on it (an aimbot) cannot be told apart from a very good player. Standing still near the centre already catches about 73 % of throws, as designed. Several accounts owned by one person can still trade wins slowly. Each check has a mode (`enforce`, `log`, `off`), see [INSTALL.md](INSTALL.md).
+
 ### Known limitations
 
 - The catch verdict comes from the defending client, so a modified client could cheat.
-- The leaderboard has no real accounts: clearing the site data loses the token (and the reserved nickname), and two
+- The multiplayer leaderboard has no real accounts: clearing the site data loses the token (and the reserved nickname), and two
   different browsers owned by the same person can still farm rating from each other.
 - No automatic reconnection in the middle of a match.
 

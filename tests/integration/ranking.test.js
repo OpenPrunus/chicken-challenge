@@ -31,7 +31,7 @@ const tmpDir = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'chicken-
 
 async function startServer(env = {}) {
   const port = await freePort();
-  const p = spawn(PHP, [path.join(ROOT, 'server', 'server.php')], { env: { ...process.env, WS_PORT: String(port), ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const p = spawn(PHP, [path.join(ROOT, 'server', 'server.php')], { env: { ...process.env, WS_PORT: String(port), CHICKEN_RANK_MIN_POINT_SECONDS: '0', ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   procs.push(p);
   let log = '';
   await new Promise((resolve, reject) => {

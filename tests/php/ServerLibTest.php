@@ -220,6 +220,10 @@ final class ServerLibTest extends TestCase
         putenv("$k=0");   $this->assertSame(7.0, envNum($k, 7), 'zéro ignoré');
         putenv("$k=-3");  $this->assertSame(7.0, envNum($k, 7), 'négatif ignoré');
         putenv("$k=abc"); $this->assertSame(7.0, envNum($k, 7), 'non numérique ignoré');
+        putenv("$k=0");   $this->assertSame(0.0, envNum($k, 7, true), 'avec allowZero, 0 est une valeur valide');
+        putenv("$k=-2");  $this->assertSame(7.0, envNum($k, 7, true), 'mais jamais un négatif');
+        putenv("$k=abc"); $this->assertSame(7.0, envNum($k, 7, true));
+        putenv("$k=1.5"); $this->assertSame(1.5, envNum($k, 7, true));
         putenv($k);
     }
 }

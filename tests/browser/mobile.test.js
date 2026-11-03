@@ -634,6 +634,26 @@ describe('fin de match multijoueur : message de classement', () => {
     assert.match(await setNet({ ...base, rated: { rating: 990, delta: -13, rank: 3, total: 4 } }), /— 3rd of 4/);
     assert.match(await setNet({ ...base, rated: { rating: 990, delta: -13, rank: 11, total: 40 } }), /— 11th of 40/);
   });
+  test('gains réduits (même adversaire plusieurs fois aujourd\'hui) : le joueur en est informé, FR et EN', async () => {
+    await startAiGame(DESKTOP);
+    await ev('document.querySelector("#lang [data-lang=en]")?.click()');
+    const r = (factor) => ({ mode: 'net', ranked: true, rated: { rating: 1010, delta: 10, rank: 1, total: 4, factor } });
+    assert.doesNotMatch(await setNet(r(1)), /Reduced|No gains/, 'facteur 1 : rien de plus');
+    assert.match(await setNet(r(0.5)), /Ranking: 1010 pts \(\+10\).*Reduced gains: you have already played this opponent several times today\./);
+    assert.match(await setNet(r(0.25)), /Reduced gains/);
+    assert.match(await setNet(r(0)), /No gains: you have already played this opponent too often today\./);
+    assert.doesNotMatch(await setNet({ mode: 'net', ranked: true, rated: { rating: 1010, delta: 10, rank: 1, total: 4 } }), /Reduced|No gains/, 'ancien serveur sans facteur');
+    await ev('document.querySelector("#lang [data-lang=fr]").click()');
+    assert.match(await setNet(r(0.5)), /Gains réduits : tu as déjà affronté cet adversaire plusieurs fois aujourd'hui\./);
+  });
+  test('match non classé parce que trop rapide : message dédié', async () => {
+    await startAiGame(DESKTOP);
+    await ev('document.querySelector("#lang [data-lang=en]")?.click()');
+    assert.equal(await setNet({ mode: 'net', ranked: true, rated: null, unrated: 'too_fast' }), 'Unranked: finished too quickly to be credible.');
+    await ev('document.querySelector("#lang [data-lang=fr]").click()');
+    assert.equal(await setNet({ mode: 'net', ranked: true, rated: null, unrated: 'too_fast' }), 'Match non classé : terminé trop vite pour être crédible.');
+    assert.equal(await setNet({ mode: 'net', ranked: true, rated: { rating: 1000, delta: 0, rank: 1, total: 1, factor: 1 }, unrated: 'too_fast' }), 'Classement : 1000 pts (0) — 1er sur 1', 'un résultat classé prime');
+  });
   test('partie non classée, ou pas encore de résultat', async () => {
     await startAiGame(DESKTOP);
     assert.match(await setNet({ mode: 'net', ranked: false, rated: null }), /Unranked game|Partie non classée/);
@@ -753,7 +773,7 @@ describe('multijoueur : le serveur refuse une capture annoncée', () => {
   const state2 = () => ev(`(() => { const G = window.__chickenDebug(); return { state: G.state, me: G.me, opp: G.opp, turn: G.turn, flash: G.flash }; })()`);
   async function setupCaught() {
     await startAiGame(DESKTOP);
-    await ev(`(() => { const G = window.__chickenDebug(); G.mode = 'net'; G.state = 'caught'; G.turn = 'me'; G.localResolved = true; G.hen = null; G.me = 0; G.opp = 0; G.held = { x: 0, y: 0, z: 0.02 }; })()`);
+    await ev(`(() => { const G = window.__chickenDebug(); G.mode = 'net'; G.state = 'caught'; G.timer = 60; G.turn = 'me'; G.localResolved = true; G.hen = null; G.me = 0; G.opp = 0; G.held = { x: 0, y: 0, z: 0.02 }; })()`);       // timer long : la scène « attrapée » ne se termine pas pendant le test
   }
   test('sans correction : mon client a déjà joué la scène, le verdict du serveur ne la rejoue pas', async () => {
     await setupCaught();

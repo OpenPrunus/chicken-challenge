@@ -254,7 +254,7 @@ function start(netInfo) {
   G = {
     name, level: LEVELS[level], levelIdx: level,
     me: 0, opp: 0,
-    mode: netInfo ? 'net' : 'ai', ranked: netInfo ? netInfo.ranked !== false : false, rated: null,
+    mode: netInfo ? 'net' : 'ai', ranked: netInfo ? netInfo.ranked !== false : false, rated: null, unrated: null,
     myKind: avatar,
     oppKind: netInfo ? netInfo.opp.kind : others[Math.floor(Math.random() * others.length)],
     oppName: netInfo ? netInfo.opp.name : null,
@@ -965,8 +965,11 @@ function netOverMsg() {
   if (!G || G.mode !== 'net') return '';
   if (G.rated) {
     const r = G.rated;
-    return t('over.rated', { rating: r.rating, delta: (r.delta > 0 ? '+' : '') + r.delta, rank: r.rank, ord: ordinal(r.rank), total: r.total });
+    const base = t('over.rated', { rating: r.rating, delta: (r.delta > 0 ? '+' : '') + r.delta, rank: r.rank, ord: ordinal(r.rank), total: r.total });
+    // même adversaire trop souvent aujourd'hui : on le dit au joueur
+    return r.factor !== undefined && r.factor < 1 ? `${base} ${t(r.factor === 0 ? 'over.reducedNone' : 'over.reduced')}` : base;
   }
+  if (G.unrated) return t('over.unrated.' + G.unrated);
   return G.ranked === false ? t('over.unranked') : '';
 }
 
@@ -1063,6 +1066,7 @@ function onNet(m) {
     case 'pos': if (G && G.mode === 'net') G.oppXt = -m.x; break;
     case 'result': onResult(m); break;
     case 'rated': if (G && G.mode === 'net') { G.rated = m; if (G.state === 'over') $('overMsg').textContent = netOverMsg(); } break;
+    case 'unrated': if (G && G.mode === 'net') { G.unrated = m.reason; if (G.state === 'over') $('overMsg').textContent = netOverMsg(); } break;
     case 'rematch_ask': if (G && G.state === 'over') $('overMsg').textContent = t('over.rematchAsk'); break;
     case 'oppleft':
       if (!G || G.mode !== 'net') break;

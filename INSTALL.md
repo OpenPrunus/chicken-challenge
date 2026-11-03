@@ -103,6 +103,24 @@ WantedBy=multi-user.target
 | `WS_ALLOWED_ORIGINS` | WS server | allowed origins, comma-separated | empty = all |
 | `CHICKEN_DATA_DIR` | WS server | directory where `multi_scores.json` is written (must be writable, and the same one the website reads) | `web/data` (set to `/var/www/html/data` in the Docker image) |
 
+Anti-cheat tuning (defaults are fine; see the *Anti-cheat* section of the README):
+
+| Variable | Where | Purpose | Default |
+| --- | --- | --- | --- |
+| `CHICKEN_CATCH_CHECK` | WS server | catch arbitration: `enforce`, `log` (accept but log "suspect"), `off` | `enforce` |
+| `CHICKEN_THROW_CHECK` | WS server | refuse throws the interface cannot produce: `enforce` / `log` / `off` | `enforce` |
+| `CHICKEN_CATCH_SLACK` | WS server | network tolerance of the catch check, in seconds (round-trip time) | `1.0` |
+| `CHICKEN_RANK_MIN_POINT_SECONDS` | WS server | a ranked match cannot be faster than this per point (`0` disables) | `1.5` |
+| `CHICKEN_PAIR_WINDOW` | WS server | window (seconds) of the repeated-opponent rating reduction | `86400` |
+| `CHICKEN_SECRET` | website | secret signing the AI-game tickets (otherwise generated in `data/secret.key`) | generated |
+| `CHICKEN_MIN_POINT_SECONDS` | website | an AI game cannot be recorded faster than this per point | `2.0` |
+| `CHICKEN_RATE_RECORDS` / `CHICKEN_RATE_TICKETS` | website | recorded games / tickets per hour, per IP and per token | `8` / `40` |
+
+If a legitimate player is wrongly refused (for instance on a very slow connection), set `CHICKEN_CATCH_CHECK=log`
+to keep playing while watching `docker compose logs chicken-ws` for `suspect capture` lines, or raise
+`CHICKEN_CATCH_SLACK`. The website also keeps `data/secret.key`, `data/abuse.json` and `data/api.lock`: they are
+denied to the web like the rest of `data/` and must be included in backups.
+
 With Docker, set these variables in `docker-compose.yml`.
 
 ## 4. Behind an HTTPS reverse proxy

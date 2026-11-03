@@ -26,6 +26,10 @@ define('SERVE_TIMEOUT', envNum('CHICKEN_SERVE_TIMEOUT', 30));   // un joueur qui
 define('CATCH_MODE', in_array(getenv('CHICKEN_CATCH_CHECK'), ['enforce', 'log', 'off'], true) ? getenv('CHICKEN_CATCH_CHECK') : 'enforce');
 define('CATCH_TIME_SLACK', envNum('CHICKEN_CATCH_SLACK', 1.0));     // tolérance de temps (latence aller-retour) en secondes
 // Lancers : le serveur n'accepte que ce que l'interface du jeu peut produire (mêmes modes que ci-dessus).
+// Anti-collusion : un match classé ne peut pas finir plus vite que ce que le jeu permet, et les gains diminuent
+// quand le même couple de joueurs se rencontre souvent dans la fenêtre (24 h).
+define('RANK_MIN_POINT_SECONDS', envNum('CHICKEN_RANK_MIN_POINT_SECONDS', 1.5, true));          // 0 désactive le contrôle
+define('PAIR_WINDOW', (int)envNum('CHICKEN_PAIR_WINDOW', 86400));
 define('THROW_MODE', in_array(getenv('CHICKEN_THROW_CHECK'), ['enforce', 'log', 'off'], true) ? getenv('CHICKEN_THROW_CHECK') : 'enforce');
 
 $port = (int)(getenv('WS_PORT') ?: 8081);
@@ -38,7 +42,7 @@ stream_set_blocking($srv, false);
 // Classement multijoueur : table chargée au démarrage, réécrite après chaque match classé.
 $dataDir = rtrim((string)(getenv('CHICKEN_DATA_DIR') ?: dirname(__DIR__) . '/web/data'), '/');
 $rankFile = $dataDir . '/multi_scores.json';
-$ranking = loadPlayers($rankFile);
+['players' => $ranking, 'pairs' => $pairs] = loadRanking($rankFile);
 fwrite(STDOUT, 'Ranking: ' . count($ranking) . " player(s) loaded from $rankFile" . (is_writable($dataDir) ? '' : ' (WARNING: directory not writable, results will not be saved)') . "\n");
 fwrite(STDOUT, "Chicken WS listening on :$port\n");            // dernier message de démarrage : le serveur est prêt
 
@@ -103,7 +107,7 @@ function startMatch(int $a, int $b, ?int $first = null): void {
     $matches[$mid] = [
         'a' => $a, 'b' => $b, 'score' => [$a => 0, $b => 0],
         'turn' => $first, 'state' => 'serve', 't' => microtime(true),
-        'thrower' => null, 'rally' => 0, 'rematch' => [],
+        'thrower' => null, 'rally' => 0, 'rematch' => [], 'started' => microtime(true),
         // classé si les deux joueurs ont un jeton, différent, et que leurs pseudos ne sont pas réservés par un autre
         'ranked' => $clients[$a]['th'] !== '' && $clients[$b]['th'] !== '' && $clients[$a]['th'] !== $clients[$b]['th']
             && !nameReservedByOther($GLOBALS['ranking'], $clients[$a]['name'], $clients[$a]['th'])
@@ -142,19 +146,28 @@ function leaveMatch(int $id): void {
 
 /** Enregistre le résultat d'un match classé (une seule fois) et prévient les joueurs encore connectés. */
 function recordMatchResult(int $mid, int $winner, int $loser): void {
-    global $matches, $clients, $ranking, $rankFile;
+    global $matches, $clients, $ranking, $pairs, $rankFile;
     $m = &$matches[$mid];
     if ($m['recorded'] || !$m['ranked']) return;
     $m['recorded'] = true;
+    // trop rapide pour être crédible (parties « truquées » pour gonfler une note) : on ne classe pas
+    $duration = microtime(true) - $m['started'];
+    if ($duration < RANK_MIN_POINT_SECONDS * array_sum($m['score'])) {
+        logm(sprintf('Unranked match #%d: %.1f s for %d points', $mid, $duration, array_sum($m['score'])));
+        foreach ([$winner, $loser] as $id) send($id, ['t' => 'unrated', 'reason' => 'too_fast']);
+        return;
+    }
+    // même couple trop souvent dans la journée : gains réduits (puis nuls)
+    [$factor, $newPairs] = pairFactor($pairs, pairKey($clients[$winner]['th'], $clients[$loser]['th']), time(), PAIR_WINDOW);
     $res = recordRankedMatch(
         $ranking,
         [$clients[$winner]['name'], $clients[$winner]['th']],
         [$clients[$loser]['name'], $clients[$loser]['th']],
-        $m['score'][$winner], $m['score'][$loser]
+        $m['score'][$winner], $m['score'][$loser], $factor
     );
     if ($res === null) return;
-    $ranking = $res['players'];
-    if (!savePlayers($rankFile, $ranking)) logm("ERROR: cannot write $rankFile");
+    $ranking = $res['players']; $pairs = $newPairs;
+    if (!savePlayers($rankFile, $ranking, $pairs)) logm("ERROR: cannot write $rankFile");
     foreach ([[$winner, 'winner', 'win'], [$loser, 'loser', 'loss']] as [$id, $k, $outcome]) {
         send($id, ['t' => 'rated', 'result' => $outcome] + $res[$k] + ['total' => count($ranking)]);
     }

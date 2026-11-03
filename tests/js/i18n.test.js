@@ -221,7 +221,7 @@ describe('cohérence des dictionnaires', () => {
     // familles construites dynamiquement dans game.js
     const families = [
       ...[0, 1, 2, 3].map((i) => `char${i}`), ...[0, 1, 2].map((i) => `level${i}`), ...[0, 1, 2, 3].map((i) => `splat${i}`),
-      'st.lobby', 'st.queue', 'st.match', 'flash.goal', 'flash.caught',
+      'st.lobby', 'st.queue', 'st.match', 'flash.goal', 'flash.caught', 'over.unrated.too_fast', 'over.reduced', 'over.reducedNone',
     ];
     for (const k of families) assert.ok(k in dict.fr && k in dict.en, k);
   });
