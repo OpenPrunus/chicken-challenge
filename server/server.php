@@ -12,13 +12,13 @@
 
 declare(strict_types=1);
 
+use Arcade\Server\SocketServer;
+use Arcade\Support\Env;
+use Arcade\Support\StdoutLogger;
+use Arcade\WebSocket\Handshake;
 use Chicken\Game\GameHub;
 use Chicken\Game\HubConfig;
 use Chicken\Ranking\RankingStore;
-use Chicken\Server\SocketServer;
-use Chicken\Support\Env;
-use Chicken\Support\StdoutLogger;
-use Chicken\WebSocket\Handshake;
 
 set_time_limit(0);
 require __DIR__ . '/bootstrap.php';
@@ -30,7 +30,7 @@ $store = new RankingStore($dataDir . '/multi_scores.json');
 
 $hub = GameHub::create(HubConfig::fromEnvironment(), $store, new StdoutLogger());
 try {
-    $server = SocketServer::listen($port, $hub, new Handshake($origins));
+    $server = SocketServer::listen($port, $hub, new Handshake($origins), 0.2, 500);
 } catch (RuntimeException $e) {
     fwrite(STDERR, $e->getMessage() . "\n");
     exit(1);

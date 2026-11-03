@@ -102,17 +102,17 @@ docker-compose.yml   two services: website (8080) and WebSocket server (8081)
 ### PHP code (`src/`)
 
 PHP 8.5, PSR-4 autoloading, PSR-12 style, `declare(strict_types=1)` everywhere, PHPStan level 8. Runtime dependencies are
-only the PSR interfaces `psr/log` (PSR-3) and `psr/clock` (PSR-20).
+the PSR interfaces `psr/log` (PSR-3) and `psr/clock` (PSR-20), and [`openprunus/arcade-core`](https://github.com/OpenPrunus/arcade-core),
+the WebSocket server and support classes shared with Gloop Volley (namespace `Arcade\`).
 
 | Namespace | Role | Patterns |
 | --- | --- | --- |
 | `Chicken\Game` | The multiplayer game: `GameHub` (facade) with `Lobby`, `Invitations`, `MatchService`, `GameMatch`, `RankingBook` | **State** (`MatchState` → `Phase\ServePhase` / `FlightPhase` / `OverPhase`), **Command** (one `Handler\*` per client message), **Factory** (`GameHub::create`) |
 | `Chicken\Physics` | Server copy of the game physics: `Hen`, `DefenderView`, `CatchArbiter`, `ThrowValidator` | Value objects (`Launch`, `Reach`), strategy (`CheckMode`: enforce / log / off) |
 | `Chicken\Ranking` | Elo, `Ranking` (immutable), `PairLimiter` (anti-collusion), `RankingStore` | **Repository** (`RankingStore`), immutable value objects updated with `clone with` |
-| `Chicken\WebSocket` | RFC 6455: `FrameCodec`, `Handshake`, `Frame`, `Opcode` | |
-| `Chicken\Server` | Sockets and the `stream_select` loop (`SocketServer`, `Connection`); knows nothing about the game | **Adapter** (`Connection` implements the game's `Transport`) |
+| `Arcade\WebSocket`, `Arcade\Server` *(arcade-core)* | RFC 6455 codec and the `stream_select` server (`SocketServer`); it knows nothing about the game | **Adapter** (`Connection` implements `Transport`); the game plugs in through `Hub` (`GameHub`) and `Session` (`Client`) |
 | `Chicken\Api` | The leaderboard API: `ApiController`, `Action\StartGame` / `RecordScore`, tickets, rate limiting | **Command** (`Action\ApiAction`), **Repository** (`ScoreFile`, `AbuseStore`) |
-| `Chicken\Support` | `Env`, `Nickname`, `SystemClock` (PSR-20), `StdoutLogger` (PSR-3) | Dependency injection of clock, logger and randomizer |
+| `Arcade\Support` *(arcade-core)*, `Chicken\Support` | `Env`, `Nickname`, `SystemClock`, `StdoutLogger`, `AtomicFile`; here `CheckMode`, `Num`, `Base64Url` | Dependency injection of clock, logger and randomizer |
 
 Class diagrams (editable in [draw.io](https://app.diagrams.net)) are in [`docs/diagrams/`](docs/diagrams): network and facade, matches and phases, physics and ranking, leaderboard API.
 

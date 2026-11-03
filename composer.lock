@@ -4,8 +4,52 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "3c4cff97dea1a2717e14b5e9faf95fa2",
+    "content-hash": "41fd52268e13c6c9da160280064f6913",
     "packages": [
+        {
+            "name": "openprunus/arcade-core",
+            "version": "v1.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/OpenPrunus/arcade-core.git",
+                "reference": "1521a8a11f5c5060baf65381b6366d0bb8f7f698"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/OpenPrunus/arcade-core/zipball/1521a8a11f5c5060baf65381b6366d0bb8f7f698",
+                "reference": "1521a8a11f5c5060baf65381b6366d0bb8f7f698",
+                "shasum": ""
+            },
+            "require": {
+                "ext-json": "*",
+                "ext-mbstring": "*",
+                "php": ">=8.5",
+                "psr/clock": "^1.0",
+                "psr/log": "^3.0"
+            },
+            "require-dev": {
+                "phpstan/phpstan": "^2.3",
+                "phpunit/phpunit": "^12.0",
+                "squizlabs/php_codesniffer": "^4.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Arcade\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "description": "Shared core for the OpenPrunus multiplayer games: WebSocket server (RFC 6455) in pure PHP, and small support classes",
+            "support": {
+                "issues": "https://github.com/OpenPrunus/arcade-core/issues",
+                "source": "https://github.com/OpenPrunus/arcade-core/tree/v1.0.0"
+            },
+            "time": "2026-11-03T13:16:11+00:00",
+            "published-time": "2026-11-03T13:23:42+00:00"
+        },
         {
             "name": "psr/clock",
             "version": "1.0.0",
@@ -349,11 +393,11 @@
         },
         {
             "name": "phpstan/phpstan",
-            "version": "2.3.4",
+            "version": "2.3.5",
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/f20ce6f3c82556cfcfc086b152445a12d1d64fff",
-                "reference": "f20ce6f3c82556cfcfc086b152445a12d1d64fff",
+                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/645a1bd6bead15fc1b8474137467961d0fa30a79",
+                "reference": "645a1bd6bead15fc1b8474137467961d0fa30a79",
                 "shasum": ""
             },
             "require": {
@@ -409,8 +453,8 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-10-28T22:38:53+00:00",
-            "published-time": "2026-10-28T22:39:06+00:00"
+            "time": "2026-11-03T12:14:22+00:00",
+            "published-time": "2026-11-03T12:14:36+00:00"
         },
         {
             "name": "phpunit/php-code-coverage",

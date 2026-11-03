@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Chicken\Tests\Game\Support;
 
-use Chicken\Game\Transport;
+use Arcade\Server\Transport;
 
 /** Transport de test : garde les messages envoyés au client. */
 final class FakeTransport implements Transport

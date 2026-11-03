@@ -16,7 +16,6 @@
     <exclude-pattern>src/Game/Client.php</exclude-pattern>
     <exclude-pattern>src/Game/GameMatch.php</exclude-pattern>
     <exclude-pattern>src/Game/RankingBook.php</exclude-pattern>
-    <exclude-pattern>src/Server/Connection.php</exclude-pattern>
     <exclude-pattern>src/Physics/Hen.php</exclude-pattern>
   </rule>
   <!-- Les tests décrivent leurs cas en français, sur des lignes plus longues que le code. -->

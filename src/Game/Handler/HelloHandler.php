@@ -10,7 +10,7 @@ use Chicken\Game\Event;
 use Chicken\Game\Lobby;
 use Chicken\Game\RankingBook;
 use Chicken\Ranking\Token;
-use Chicken\Support\Nickname;
+use Arcade\Support\Nickname;
 use Psr\Log\LoggerInterface;
 
 /** Identification : pseudo (rendu unique) et jeton secret du navigateur, qui rend les parties « classées ». */

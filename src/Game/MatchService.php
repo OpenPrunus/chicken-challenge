@@ -8,7 +8,7 @@ use Chicken\Physics\CatchArbiter;
 use Chicken\Physics\ThrowValidator;
 use Chicken\Ranking\Participant;
 use Chicken\Support\Num;
-use Chicken\Support\SystemClock;
+use Arcade\Support\SystemClock;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Random\Randomizer;

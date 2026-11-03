@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Chicken\Ranking;
 
-use Chicken\Support\Nickname;
+use Arcade\Support\Nickname;
 
 /** Une ligne du classement multijoueur. Immuable : un match produit un nouveau Player. */
 final readonly class Player

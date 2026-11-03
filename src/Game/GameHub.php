@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Chicken\Game;
 
+use Arcade\Server\Hub;
+use Arcade\Server\Session;
+use Arcade\Server\Transport;
+use Arcade\Support\SystemClock;
 use Chicken\Game\Handler\AcceptHandler;
 use Chicken\Game\Handler\AutoHandler;
 use Chicken\Game\Handler\CancelHandler;
@@ -15,7 +19,6 @@ use Chicken\Game\Handler\MessageHandler;
 use Chicken\Physics\CatchArbiter;
 use Chicken\Physics\ThrowValidator;
 use Chicken\Ranking\RankingStore;
-use Chicken\Support\SystemClock;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Random\Randomizer;
@@ -24,7 +27,7 @@ use Random\Randomizer;
  * Façade du jeu : tout ce que le serveur réseau a besoin de savoir. Il lui confie les connexions et les messages bruts,
  * le hub s'occupe du salon, des défis, des matchs et du classement.
  */
-final class GameHub
+final class GameHub implements Hub
 {
     /** @var array<string, MessageHandler> clé = valeur de ClientMessage */
     private array $handlers;
@@ -92,6 +95,7 @@ final class GameHub
         );
     }
 
+    #[\Override]
     public function accept(Transport $transport): Client
     {
         $client = new Client($this->lobby->nextId(), $transport, (int) $this->clock->now()->format('U'));
@@ -101,8 +105,10 @@ final class GameHub
     }
 
     /** Un message texte complet reçu d'un client. */
-    public function receive(Client $client, string $raw): void
+    #[\Override]
+    public function receive(Session $session, string $raw): void
     {
+        $client = $this->clientOf($session);
         $now = (int) $this->clock->now()->format('U');
         if (!$client->acceptMessage($now)) {
             return;                                                             // anti-flood
@@ -132,8 +138,10 @@ final class GameHub
     }
 
     /** Le client a disparu (déconnexion, expulsion) : il quitte son match, ses défis, le salon. */
-    public function disconnect(Client $client): void
+    #[\Override]
+    public function disconnect(Session $session): void
     {
+        $client = $this->clientOf($session);
         $this->matches->leave($client);
         foreach ($this->invitations->forget($client->id) as $recipient) {
             $this->lobby->get($recipient)?->send(Event::InviteCancel, ['from' => $client->id]);
@@ -145,7 +153,19 @@ final class GameHub
         }
     }
 
+    #[\Override]
+    public function population(): int
+    {
+        return $this->lobby->count();
+    }
+
+    private function clientOf(Session $session): Client
+    {
+        return $session instanceof Client ? $session : throw new \InvalidArgumentException('unknown session');
+    }
+
     /** Délais : un joueur qui ne répond plus perd le point, un défi sans réponse expire. */
+    #[\Override]
     public function tick(): void
     {
         $now = SystemClock::seconds($this->clock);

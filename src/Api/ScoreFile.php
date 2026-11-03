@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Chicken\Api;
 
-use Chicken\Support\AtomicFile;
+use Arcade\Support\AtomicFile;
 use Closure;
 
 /** scores.json : lecture simple pour l'affichage, mise à jour exclusive (verrou) pour l'enregistrement. */

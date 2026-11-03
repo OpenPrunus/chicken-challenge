@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Chicken\Ranking;
 
-use Chicken\Support\Nickname;
+use Arcade\Support\Nickname;
 use Countable;
 
 /**

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Chicken\Api;
 
-use Chicken\Support\Nickname;
+use Arcade\Support\Nickname;
 
 /** Cumul d'un joueur dans le classement contre l'IA. Immuable. */
 final readonly class ScoreRow

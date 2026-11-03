@@ -11,7 +11,7 @@ declare(strict_types=1);
 use Chicken\Api\ApiConfig;
 use Chicken\Api\ApiController;
 use Chicken\Api\Request;
-use Chicken\Support\SystemClock;
+use Arcade\Support\SystemClock;
 
 ini_set('display_errors', '0');          // jamais d'avertissement PHP (ni de chemin interne) dans la réponse
 header('Content-Type: application/json; charset=utf-8');

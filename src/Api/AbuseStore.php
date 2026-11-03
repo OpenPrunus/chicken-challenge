@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Chicken\Api;
 
-use Chicken\Support\AtomicFile;
+use Arcade\Support\AtomicFile;
 
 final readonly class AbuseStore
 {

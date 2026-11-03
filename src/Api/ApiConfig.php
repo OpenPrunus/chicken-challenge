@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Chicken\Api;
 
-use Chicken\Support\Env;
+use Arcade\Support\Env;
 
 /** Réglages de l'API (surchargeables par l'environnement : tests, ajustements). */
 final readonly class ApiConfig

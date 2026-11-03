@@ -9,7 +9,7 @@ use Chicken\Api\ApiError;
 use Chicken\Api\RequestContext;
 use Chicken\Api\Response;
 use Chicken\Api\UpdateResult;
-use Chicken\Support\Nickname;
+use Arcade\Support\Nickname;
 
 /**
  * Fin de partie : enregistre le score. Une partie se déroule dans le navigateur, le serveur ne peut pas la vérifier ; il

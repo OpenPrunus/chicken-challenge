@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Chicken\Game;
 
+use Arcade\Server\Session;
+use Arcade\Server\Transport;
+
 /** Un joueur connecté : identité, état dans le salon / le match et canal d'envoi. */
-final class Client
+final class Client implements Session
 {
     final public const int MAX_MESSAGES_PER_SECOND = 80;
 
@@ -52,6 +55,7 @@ final class Client
         return true;
     }
 
+    #[\Override]
     public function idleFor(int $now): int
     {
         return $now - $this->lastSeen;

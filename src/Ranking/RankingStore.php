@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Chicken\Ranking;
 
-use Chicken\Support\AtomicFile;
+use Arcade\Support\AtomicFile;
 
 /** Fichier JSON du classement multijoueur (multi_scores.json), écrit par le serveur de jeu et lu par le site. */
 final readonly class RankingStore

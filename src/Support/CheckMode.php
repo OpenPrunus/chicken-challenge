@@ -17,6 +17,14 @@ enum CheckMode: string
     case Log = 'log';
     case Off = 'off';
 
+    /** Niveau demandé par une variable d'environnement ; valeur absente ou inconnue : `$default`. */
+    public static function fromEnv(string $name, self $default = self::Enforce): self
+    {
+        $raw = getenv($name);
+
+        return ($raw === false ? null : self::tryFrom($raw)) ?? $default;
+    }
+
     public function isActive(): bool
     {
         return $this !== self::Off;

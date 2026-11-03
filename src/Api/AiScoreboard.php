@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Chicken\Api;
 
 use Chicken\Game\MatchRules;
-use Chicken\Support\Nickname;
+use Arcade\Support\Nickname;
 
 /** Classement des parties contre l'IA. Immuable : withMatch() retourne un nouveau tableau. */
 final readonly class AiScoreboard

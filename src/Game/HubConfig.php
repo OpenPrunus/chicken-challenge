@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Chicken\Game;
 
 use Chicken\Support\CheckMode;
-use Chicken\Support\Env;
+use Arcade\Support\Env;
 
 /** Réglages du serveur de jeu (surchargeables par l'environnement : tests d'intégration, ajustements en production). */
 final readonly class HubConfig
@@ -28,9 +28,9 @@ final readonly class HubConfig
             inviteTtl: Env::number('CHICKEN_INVITE_TTL', 20),
             flightTimeout: Env::number('CHICKEN_FLIGHT_TIMEOUT', 10),
             serveTimeout: Env::number('CHICKEN_SERVE_TIMEOUT', 30),
-            catchMode: Env::mode('CHICKEN_CATCH_CHECK'),
+            catchMode: CheckMode::fromEnv('CHICKEN_CATCH_CHECK'),
             catchTimeSlack: Env::number('CHICKEN_CATCH_SLACK', 1.0),
-            throwMode: Env::mode('CHICKEN_THROW_CHECK'),
+            throwMode: CheckMode::fromEnv('CHICKEN_THROW_CHECK'),
             rankMinPointSeconds: Env::number('CHICKEN_RANK_MIN_POINT_SECONDS', 1.5, true),
             pairWindow: (int) Env::number('CHICKEN_PAIR_WINDOW', 86400),
         );

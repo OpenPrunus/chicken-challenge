@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Chicken\Game;
 
-use Chicken\Support\Nickname;
+use Arcade\Support\Nickname;
 
 /** Registre des clients connectés et diffusion de la liste du salon (les joueurs du salon en sont les observateurs). */
 final class Lobby
