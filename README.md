@@ -93,6 +93,7 @@ web/                 website, served by Apache (PHP 8.5)
 server/server.php    entry point of the WebSocket multiplayer server, outside the web root (a few lines of wiring)
 src/                 all PHP code, PSR-4 namespace `Chicken\` (see below)
 tests/               unit tests (js/, php/) and integration tests (integration/)
+docs/diagrams/       class diagrams (draw.io sources + PNG exports)
 .github/workflows/   CI pipeline
 Dockerfile           php:8.5-apache-trixie image (Debian 13)
 docker-compose.yml   two services: website (8080) and WebSocket server (8081)
@@ -112,6 +113,8 @@ only the PSR interfaces `psr/log` (PSR-3) and `psr/clock` (PSR-20).
 | `Chicken\Server` | Sockets and the `stream_select` loop (`SocketServer`, `Connection`); knows nothing about the game | **Adapter** (`Connection` implements the game's `Transport`) |
 | `Chicken\Api` | The leaderboard API: `ApiController`, `Action\StartGame` / `RecordScore`, tickets, rate limiting | **Command** (`Action\ApiAction`), **Repository** (`ScoreFile`, `AbuseStore`) |
 | `Chicken\Support` | `Env`, `Nickname`, `SystemClock` (PSR-20), `StdoutLogger` (PSR-3) | Dependency injection of clock, logger and randomizer |
+
+Class diagrams (editable in [draw.io](https://app.diagrams.net)) are in [`docs/diagrams/`](docs/diagrams): network and facade, matches and phases, physics and ranking, leaderboard API.
 
 PHP 8.5 and recent PHP features in use: the pipe operator (`Nickname::clean`), `clone with` on readonly classes (`Player`,
 `ScoreRow`), `#[\NoDiscard]` on immutable updates, `array_first` / `array_find` / `array_any`, property hooks and
