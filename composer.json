@@ -7,7 +7,7 @@
     "php": ">=8.5",
     "ext-json": "*",
     "ext-mbstring": "*",
-    "openprunus/arcade-core": "^1.0",
+    "openprunus/arcade-core": "^1.1",
     "psr/clock": "^1.0",
     "psr/log": "^3.0"
   },

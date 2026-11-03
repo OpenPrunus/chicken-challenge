@@ -101,6 +101,10 @@ WantedBy=multi-user.target
 | `CHICKEN_WS` | website (PHP) | WebSocket URL used by the **browser** | empty = same host, port 8081 |
 | `WS_PORT` | WS server | listening port | `8081` |
 | `WS_ALLOWED_ORIGINS` | WS server | allowed origins, comma-separated | empty = all |
+| `TRUSTED_PROXIES` | WS server | reverse proxies whose `X-Real-IP` is trusted (CIDR, comma-separated) | private networks |
+| `CHICKEN_MAX_CONN_PER_IP` | WS server | simultaneous connections per address (HTTP 429 beyond) | 10 |
+| `CHICKEN_MAX_ACCOUNTS_PER_IP` | WS server | ranked accounts per address over the window | 3 |
+| `CHICKEN_ALLOW_SAME_IP` | WS server | `1` = allow ranked games between players sharing an address | 0 |
 | `CHICKEN_DATA_DIR` | WS server | directory where `multi_scores.json` is written (must be writable, and the same one the website reads) | `web/data` (set to `/var/www/html/data` in the Docker image) |
 | `CHICKEN_AUTOLOAD` | website, WS server | path of Composer's `vendor/autoload.php`, when it is not at the usual place (`../vendor` next to `web/`, or beside `server.php`) | set to `/opt/chicken/vendor/autoload.php` in the Docker image |
 

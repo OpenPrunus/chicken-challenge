@@ -58,6 +58,10 @@ docker compose up -d --build
 Then open <http://localhost:8080>. See [INSTALL.md](INSTALL.md) for details (without Docker,
 HTTPS reverse proxy, configuration, troubleshooting).
 
+## Anti-cheat (by IP)
+
+The server reads the real client address from `X-Real-IP`, trusted only when the request comes from a trusted proxy (`TRUSTED_PROXIES`). It is kept in memory only, never stored. A ranked game becomes a friendly one (with the reason shown) when both players share an address or when one address uses too many accounts; connections per address are capped. Repeated meetings between the same two players are already handled by the ranking itself (decreasing gains). Details in [INSTALL.md](INSTALL.md); the logic lives in [arcade-core](https://github.com/OpenPrunus/arcade-core) ≥ 1.1.
+
 ## Tests
 
 ```bash

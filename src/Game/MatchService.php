@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Chicken\Game;
 
+use Arcade\Fair\RankingGuard;
 use Chicken\Physics\CatchArbiter;
 use Chicken\Physics\ThrowValidator;
 use Chicken\Ranking\Participant;
@@ -30,6 +31,7 @@ final class MatchService
         private readonly RankingBook $book,
         private readonly ClockInterface $clock,
         private readonly Randomizer $randomizer,
+        private readonly RankingGuard $guard,
     ) {
     }
 
@@ -49,9 +51,12 @@ final class MatchService
         $first ??= $this->randomizer->getInt(0, 1) === 1 ? $a->id : $b->id;
         $ranking = $this->book->ranking;
         // classé si les deux joueurs ont un jeton, différent, et que leurs pseudos ne sont pas réservés par un autre
-        $ranked = $a->tokenHash !== '' && $b->tokenHash !== '' && $a->tokenHash !== $b->tokenHash
+        $eligible = $a->tokenHash !== '' && $b->tokenHash !== '' && $a->tokenHash !== $b->tokenHash
             && !$ranking->isReservedByOther((string) $a->name, $a->tokenHash)
             && !$ranking->isReservedByOther((string) $b->name, $b->tokenHash);
+        // et si les adresses IP le permettent (même adresse, trop de comptes sur une adresse, mêmes deux adresses trop souvent face à face)
+        $why = $eligible ? $this->guard->check($a->ip, $a->tokenHash, $b->ip, $b->tokenHash, (int) $this->now()) : null;
+        $ranked = $eligible && $why === null;
 
         $match = new GameMatch(++$this->lastMatchId, $a->id, $b->id, $first, $ranked, $this->now());
         $this->matches[$match->id] = $match;
@@ -63,9 +68,9 @@ final class MatchService
         foreach ([[$a, $b], [$b, $a]] as [$me, $opponent]) {
             $me->send(Event::Match, [
                 'opp' => ['name' => $opponent->name, 'kind' => $opponent->kind], 'serve' => $first === $me->id, 'ranked' => $ranked,
-            ]);
+            ] + ($why !== null ? ['why' => $why] : []));
         }
-        $this->logger->info('Match #{id} : {a} vs {b}', ['id' => $match->id, 'a' => $a->name, 'b' => $b->name]);
+        $this->logger->info('Match #{id} : {a} vs {b}{why}', ['id' => $match->id, 'a' => $a->name, 'b' => $b->name, 'why' => $why !== null ? " (amical : $why)" : '']);
         $this->lobby->broadcast();
 
         return $match;

@@ -254,7 +254,7 @@ function start(netInfo) {
   G = {
     name, level: LEVELS[level], levelIdx: level,
     me: 0, opp: 0,
-    mode: netInfo ? 'net' : 'ai', ranked: netInfo ? netInfo.ranked !== false : false, rated: null, unrated: null,
+    mode: netInfo ? 'net' : 'ai', ranked: netInfo ? netInfo.ranked !== false : false, why: netInfo ? netInfo.why || null : null, rated: null, unrated: null,
     myKind: avatar,
     oppKind: netInfo ? netInfo.opp.kind : others[Math.floor(Math.random() * others.length)],
     oppName: netInfo ? netInfo.opp.name : null,
@@ -970,7 +970,7 @@ function netOverMsg() {
     return r.factor !== undefined && r.factor < 1 ? `${base} ${t(r.factor === 0 ? 'over.reducedNone' : 'over.reduced')}` : base;
   }
   if (G.unrated) return t('over.unrated.' + G.unrated);
-  return G.ranked === false ? t('over.unranked') : '';
+  return G.ranked === false ? t(G.why ? 'over.why.' + G.why : 'over.unranked') : '';
 }
 
 function renderInvite() {
@@ -1056,7 +1056,7 @@ function onNet(m) {
       break;
     case 'match':
       net.queued = false; autoLabel();
-      start({ opp: m.opp, serve: m.serve, ranked: m.ranked });
+      start({ opp: m.opp, serve: m.serve, ranked: m.ranked, why: m.why });
       break;
     case 'throw':
       if (!G || G.mode !== 'net' || G.state === 'over') break;

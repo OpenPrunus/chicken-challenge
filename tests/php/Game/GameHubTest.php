@@ -26,6 +26,7 @@ final class GameHubTest extends TestCase
     private const string TB = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
     private string $dir;
+    private int $ipCounter = 0;
     private MutableClock $clock;
     /** @var list<string> */
     private array $log = [];
@@ -73,10 +74,11 @@ final class GameHubTest extends TestCase
     }
 
     /** @return array{Client, FakeTransport} */
-    private function join(string $name, ?string $token = null): array
+    private function join(string $name, ?string $token = null, ?string $ip = null): array
     {
         $transport = new FakeTransport();
         $client = $this->hub->accept($transport);
+        $client->setAddress($ip ?? '203.0.113.' . (++$this->ipCounter));        // une adresse différente par navigateur, sauf demande contraire
         $this->say($client, ['t' => 'hello', 'name' => $name, 'kind' => 1, 'token' => $token]);
 
         return [$client, $transport];
@@ -488,5 +490,53 @@ final class GameHubTest extends TestCase
             $factors[] = $tt->last('rated')['factor'];
         }
         $this->assertEquals([1.0, 1.0, 0.5, 0.25, 0.0], $factors);
+    }
+
+    // ---- anti-triche par adresse IP --------------------------------------------------------------------------------
+
+    public function testPlayersOnTheSameAddressPlayAFriendlyMatchWithAReason(): void
+    {
+        [$a, $ta] = $this->join('Alice', self::TA, '198.51.100.5');
+        [$b, $tb] = $this->join('Bob', self::TB, '198.51.100.5');
+        $this->say($a, ['t' => 'auto']);
+        $this->say($b, ['t' => 'auto']);
+        $this->assertFalse($ta->last('match')['ranked']);
+        $this->assertSame('same_ip', $ta->last('match')['why']);
+        $this->assertSame('same_ip', $tb->last('match')['why']);
+    }
+
+    public function testPlayersOnDifferentAddressesAreRankedWithoutAnyReason(): void
+    {
+        [$a, $ta] = $this->join('Alice', self::TA, '198.51.100.5');
+        [$b] = $this->join('Bob', self::TB, '198.51.100.6');
+        $this->say($a, ['t' => 'auto']);
+        $this->say($b, ['t' => 'auto']);
+        $this->assertTrue($ta->last('match')['ranked']);
+        $this->assertArrayNotHasKey('why', $ta->last('match'));
+    }
+
+    public function testAFourthAccountFromOneAddressIsNotRanked(): void
+    {
+        $results = [];
+        for ($i = 1; $i <= 4; $i++) {
+            [$a, $ta] = $this->join("Farm$i", str_repeat((string) $i, 32), '198.51.100.50');
+            [$b] = $this->join("Real$i", str_repeat(chr(96 + $i), 32), "198.51.100.1$i");
+            $this->say($a, ['t' => 'auto']);
+            $this->say($b, ['t' => 'auto']);
+            $results[] = [$ta->last('match')['ranked'], $ta->last('match')['why'] ?? null];
+            $this->hub->disconnect($a);
+            $this->hub->disconnect($b);
+        }
+        $this->assertSame([[true, null], [true, null], [true, null], [false, 'too_many_accounts']], $results);
+    }
+
+    public function testAGuestWithoutTokenIsStillUnrankedWithoutAReason(): void
+    {
+        [$a] = $this->join('Alice', self::TA, '198.51.100.5');
+        [$g, $tg] = $this->join('Guest', null, '198.51.100.6');
+        $this->say($a, ['t' => 'auto']);
+        $this->say($g, ['t' => 'auto']);
+        $this->assertFalse($tg->last('match')['ranked']);
+        $this->assertArrayNotHasKey('why', $tg->last('match'));
     }
 }

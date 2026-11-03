@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const net = require('node:net');
 const path = require('node:path');
-const { E, sleep, legitHen, HEN, honestCatch, catchHonestly } = require('./helpers.js');
+const { E, sleep, legitHen, HEN, honestCatch, catchHonestly, wsOptions } = require('./helpers.js');
 
 const ROOT = path.join(__dirname, '..', '..');
 const PHP = process.env.PHP_BIN || 'php';
@@ -32,7 +32,7 @@ async function startServer(env = {}) {
   return { url: `ws://127.0.0.1:${port}`, log: () => log, stop: () => new Promise((r) => { p.once('exit', r); p.kill(); }) };
 }
 class Client {
-  constructor(url) { this.ws = new WebSocket(url); this.inbox = []; this.ws.onmessage = (e) => this.inbox.push(JSON.parse(e.data)); this.opened = new Promise((res, rej) => { this.ws.onopen = res; this.ws.onerror = () => rej(new Error('connexion')); }); }
+  constructor(url, ip) { this.ws = new WebSocket(url, wsOptions(ip)); this.inbox = []; this.ws.onmessage = (e) => this.inbox.push(JSON.parse(e.data)); this.opened = new Promise((res, rej) => { this.ws.onopen = res; this.ws.onerror = () => rej(new Error('connexion')); }); }
   send(o) { this.ws.send(JSON.stringify(o)); }
   async wait(pred, ms = 2500) { const t0 = Date.now(); while (Date.now() - t0 < ms) { const i = this.inbox.findIndex(pred); if (i >= 0) return this.inbox.splice(i, 1)[0]; await sleep(15); } return null; }
   async none(pred, ms = 250) { await sleep(ms); return !this.inbox.some(pred); }

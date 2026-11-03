@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Chicken\Game;
 
+use Arcade\Fair\RankingGuard;
 use Arcade\Server\Hub;
 use Arcade\Server\Session;
 use Arcade\Server\Transport;
+use Arcade\Support\Env;
 use Arcade\Support\SystemClock;
 use Chicken\Game\Handler\AcceptHandler;
 use Chicken\Game\Handler\AutoHandler;
@@ -56,12 +58,26 @@ final class GameHub implements Hub
     }
 
     /** Fabrique : assemble le hub et ses dépendances (racine de composition du jeu). */
+    /**
+     * Anti-triche par IP. La limite de rencontres d'un même couple est déjà gérée par le classement (gains dégressifs,
+     * CHICKEN_PAIR_WINDOW) : ici elle est désactivée par défaut pour ne pas compter deux fois.
+     */
+    private static function guardFromEnvironment(): RankingGuard
+    {
+        return new RankingGuard(
+            maxAccountsPerIp: (int) Env::number('CHICKEN_MAX_ACCOUNTS_PER_IP', 3, true),
+            maxPairMatches: (int) Env::number('CHICKEN_MAX_PAIR_MATCHES', 1_000_000, true),
+            allowSameIp: Env::string('CHICKEN_ALLOW_SAME_IP') === '1',
+        );
+    }
+
     public static function create(
         HubConfig $config,
         RankingStore $store,
         LoggerInterface $logger,
         ClockInterface $clock = new SystemClock(),
         Randomizer $randomizer = new Randomizer(),
+        ?RankingGuard $guard = null,
     ): self {
         $lobby = new Lobby();
         $invitations = new Invitations();
@@ -76,6 +92,7 @@ final class GameHub implements Hub
             book: $book,
             clock: $clock,
             randomizer: $randomizer,
+            guard: $guard ?? self::guardFromEnvironment(),
         );
 
         return new self(

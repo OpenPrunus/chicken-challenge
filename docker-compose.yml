@@ -20,6 +20,10 @@ services:
     environment:
       WS_PORT: "8081"
       WS_ALLOWED_ORIGINS: ""     # ex. "https://jeu.exemple.fr" pour restreindre
+      TRUSTED_PROXIES: ""        # reverse proxies dont on croit X-Real-IP (vide = réseaux privés)
+      CHICKEN_MAX_CONN_PER_IP: "10"      # connexions simultanées par adresse
+      CHICKEN_MAX_ACCOUNTS_PER_IP: "3"   # comptes classés par adresse sur la fenêtre
+      CHICKEN_ALLOW_SAME_IP: "0"         # 1 = autoriser le classement entre joueurs de la même adresse
     restart: unless-stopped
 
 volumes:

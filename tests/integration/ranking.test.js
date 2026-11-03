@@ -16,7 +16,7 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..', '..');
 const PHP = process.env.PHP_BIN || 'php';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const { HEN, catchHonestly } = require('./helpers.js');
+const { HEN, catchHonestly, wsOptions } = require('./helpers.js');
 const type = (t) => (m) => m.t === t;
 const token = () => crypto.randomBytes(16).toString('hex');
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
@@ -44,8 +44,8 @@ async function startServer(env = {}) {
 }
 
 class Client {
-  constructor(url) {
-    this.ws = new WebSocket(url); this.inbox = []; this.all = [];
+  constructor(url, ip) {
+    this.ws = new WebSocket(url, wsOptions(ip)); this.inbox = []; this.all = [];
     this.ws.onmessage = (e) => { const m = JSON.parse(e.data); this.inbox.push(m); this.all.push(m); };
     this.opened = new Promise((res, rej) => { this.ws.onopen = res; this.ws.onerror = () => rej(new Error('connexion refusée')); });
   }

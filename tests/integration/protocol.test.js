@@ -61,8 +61,8 @@ after(() => { for (const p of procs) p.kill(); });
 
 // ------------------------------------------------------------------------------------------------ client de test
 class Client {
-  constructor(url = URL_MAIN) {
-    this.ws = new WebSocket(url);
+  constructor(url = URL_MAIN, ip) {
+    this.ws = new WebSocket(url, wsOptions(ip));
     this.inbox = [];
     this.ws.onmessage = (e) => this.inbox.push(JSON.parse(e.data));
     this.opened = new Promise((res, rej) => { this.ws.onopen = res; this.ws.onerror = () => rej(new Error('connexion refusée')); });
@@ -104,7 +104,7 @@ async function matchUp(A, B) {
   const [server, def] = mA.serve ? [A, B] : [B, A];
   return { server, def, mA, mB };
 }
-const { HEN, legitHen, honestCatch, catchHonestly } = require('./helpers.js');
+const { HEN, legitHen, honestCatch, catchHonestly, wsOptions } = require('./helpers.js');
 const withClients = (fn) => async (t) => {
   const cs = [];
   const mk = async (...a) => { const c = await join(...a); cs.push(c); return c; };
@@ -486,4 +486,32 @@ describe('délais du serveur', () => {
     assert.deepEqual([r.kind, r.by, r.you], ['goal', 'you', 1]);
     assert.equal((await server.wait(type('result'))).by, 'opp');
   }));
+  test('anti-triche par IP : deux joueurs de la même adresse jouent une partie non classée, avec le motif', async () => {
+    const tok = (c) => c.repeat(32);
+    const mk = async (name, token) => {
+      const c = new Client(URL_MAIN, '192.0.2.77');
+      await c.opened;
+      c.send({ t: 'hello', name: uniq(name), kind: 0, token });
+      const w = await c.wait(type('welcome'));
+      c.id = w.id;
+      return c;
+    };
+    const a = await mk('ia', tok('c')), b = await mk('ib', tok('d'));
+    try {
+      const { mA } = await matchUp(a, b);
+      assert.equal(mA.ranked, false);
+      assert.equal(mA.why, 'same_ip');
+    } finally { a.close(); b.close(); }
+  });
+
+  test('anti-triche par IP : trop de connexions depuis une adresse sont refusées', async () => {
+    const small = await startServer({ CHICKEN_MAX_CONN_PER_IP: '2' });
+    const open = [new Client(small.url, '192.0.2.88'), new Client(small.url, '192.0.2.88')];
+    await Promise.all(open.map((c) => c.opened));
+    const third = new Client(small.url, '192.0.2.88');
+    await assert.rejects(third.opened);
+    const other = new Client(small.url, '192.0.2.89');
+    await other.opened;                                                        // une autre adresse reste acceptée
+    [...open, other].forEach((c) => c.close());
+  });
 });

@@ -35,4 +35,11 @@ async function catchHonestly(defender, hen = HEN, extraDelayMs = 0) {
   return c;
 }
 
-module.exports = { E, sleep, legitHen, HEN, honestCatch, catchHonestly };
+/** Une adresse IP distincte par client de test : le reverse proxy la transmet dans X-Real-IP (sinon tous seraient « 127.0.0.1 », donc non classés). */
+let clientCount = 0;
+function wsOptions(ip) {
+  clientCount++;
+  return { headers: { 'X-Real-IP': ip ?? `198.18.${(clientCount >> 8) & 255}.${clientCount & 255}` } };
+}
+
+module.exports = { E, sleep, legitHen, HEN, honestCatch, catchHonestly, wsOptions };

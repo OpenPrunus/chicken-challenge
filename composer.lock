@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "41fd52268e13c6c9da160280064f6913",
+    "content-hash": "d527156b0087bca161e2b5609b90e82b",
     "packages": [
         {
             "name": "openprunus/arcade-core",
-            "version": "v1.0.0",
+            "version": "v1.1.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/OpenPrunus/arcade-core.git",
-                "reference": "1521a8a11f5c5060baf65381b6366d0bb8f7f698"
+                "reference": "3d60c644d4794fcf40b67c69b54a1c7563c41aa0"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/OpenPrunus/arcade-core/zipball/1521a8a11f5c5060baf65381b6366d0bb8f7f698",
-                "reference": "1521a8a11f5c5060baf65381b6366d0bb8f7f698",
+                "url": "https://api.github.com/repos/OpenPrunus/arcade-core/zipball/3d60c644d4794fcf40b67c69b54a1c7563c41aa0",
+                "reference": "3d60c644d4794fcf40b67c69b54a1c7563c41aa0",
                 "shasum": ""
             },
             "require": {
@@ -45,10 +45,10 @@
             "description": "Shared core for the OpenPrunus multiplayer games: WebSocket server (RFC 6455) in pure PHP, and small support classes",
             "support": {
                 "issues": "https://github.com/OpenPrunus/arcade-core/issues",
-                "source": "https://github.com/OpenPrunus/arcade-core/tree/v1.0.0"
+                "source": "https://github.com/OpenPrunus/arcade-core/tree/v1.1.0"
             },
-            "time": "2026-11-03T13:16:11+00:00",
-            "published-time": "2026-11-03T13:23:42+00:00"
+            "time": "2026-11-03T19:10:04+00:00",
+            "published-time": "2026-11-03T19:11:00+00:00"
         },
         {
             "name": "psr/clock",
