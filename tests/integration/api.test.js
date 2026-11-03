@@ -31,7 +31,7 @@ async function startSite(env = {}) {
   fs.rmSync(path.join(dir, 'web', 'data'), { recursive: true, force: true }); fs.mkdirSync(path.join(dir, 'web', 'data'));
   const port = await freePort();
   const p = spawn(PHP, ['-S', `127.0.0.1:${port}`, '-t', path.join(dir, 'web')], {
-    env: { ...process.env, CHICKEN_SECRET: SECRET, CHICKEN_MIN_POINT_SECONDS: '0', ...env }, stdio: 'ignore',
+    env: { ...process.env, CHICKEN_AUTOLOAD: path.join(ROOT, 'vendor', 'autoload.php'), CHICKEN_SECRET: SECRET, CHICKEN_MIN_POINT_SECONDS: '0', ...env }, stdio: 'ignore',
   });
   procs.push(p);
   const base = `http://127.0.0.1:${port}`;

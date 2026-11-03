@@ -62,19 +62,24 @@ HTTPS reverse proxy, configuration, troubleshooting).
 
 ```bash
 npm run test:unit          # JavaScript: game engine (physics, aiming, spin, catching, scoring) and FR/EN dictionaries
-composer install && vendor/bin/phpunit   # PHP: score rules, nickname cleaning, WebSocket framing (RFC 6455), results
+composer install
+composer test              # PHP unit tests: game hub (lobby, challenges, matches, arbitration), Elo ranking, API, WebSocket framing
+composer cs                # PSR-12 coding standard (PHP_CodeSniffer); `composer cs:fix` repairs what can be
+composer stan              # static analysis (PHPStan, level 8)
+composer check             # the three above
 npm run test:integration   # starts the real PHP WebSocket server and plays matches against it
 npm run test:browser       # headless Chrome with an emulated phone: layout, orientation, touch aiming and catching
 ```
 
-Requirements: Node 22+ (no npm dependencies), PHP 8.3+ with Composer, and Chrome/Chromium for the browser tests
+Requirements: Node 22+ (no npm dependencies), PHP 8.5+ with Composer, and Chrome/Chromium for the browser tests
 (`CHROME_BIN` to point at a specific binary, `BASE_URL` to target a site that is already running). `npm test` runs the JavaScript unit
 tests and the integration tests (which need `php` on the PATH) and the browser tests. The GitHub Actions workflow
-(`.github/workflows/ci.yml`) runs everything on each push and pull request: JS unit tests, PHP unit tests on
-8.3, 8.4 and 8.5, the integration tests, the mobile browser tests, and a Docker smoke test.
+(`.github/workflows/ci.yml`) runs everything on each push and pull request: JS unit tests, PHP quality (PSR-12,
+PHPStan, PHPUnit) on 8.5, the integration tests, the mobile browser tests, and a Docker smoke test.
 
-The pure game logic lives in `web/assets/engine.js` (usable from the browser and from Node), and the
-server's pure functions in `server/lib.php`, so they can be tested without a browser or a running server.
+The pure game logic lives in `web/assets/engine.js` (usable from the browser and from Node), and the whole PHP side
+is made of small classes with no global state (`src/`), so the game can be tested without a browser, a socket or a
+real clock: the unit tests drive the `GameHub` with fake clients and a controllable clock.
 The integration test can also target an already running server: `WS_URL=ws://localhost:8081 npm run test:integration`.
 
 ## Architecture
@@ -82,20 +87,41 @@ The integration test can also target an already running server: `WS_URL=ws://loc
 ```
 web/                 website, served by Apache (PHP 8.5)
   index.php          single page (menu, lobby, game)
-  api.php            leaderboard for games against the AI (JSON)
+  api.php            thin entry point of the leaderboard API (JSON): builds a Request, sends the Response
   assets/            engine.js (pure game logic), game.js (rendering, input, networking), i18n.js (FR/EN), style.css
-  lib/scores.php     leaderboard rules (pure functions)
   data/              scores.json (games vs the AI) and multi_scores.json (multiplayer, written by the game server)
-server/server.php    WebSocket multiplayer server in plain PHP, outside the web root (pure helpers in lib.php)
+server/server.php    entry point of the WebSocket multiplayer server, outside the web root (a few lines of wiring)
+src/                 all PHP code, PSR-4 namespace `Chicken\` (see below)
 tests/               unit tests (js/, php/) and integration tests (integration/)
 .github/workflows/   CI pipeline
 Dockerfile           php:8.5-apache-trixie image (Debian 13)
 docker-compose.yml   two services: website (8080) and WebSocket server (8081)
 ```
 
+### PHP code (`src/`)
+
+PHP 8.5, PSR-4 autoloading, PSR-12 style, `declare(strict_types=1)` everywhere, PHPStan level 8. Runtime dependencies are
+only the PSR interfaces `psr/log` (PSR-3) and `psr/clock` (PSR-20).
+
+| Namespace | Role | Patterns |
+| --- | --- | --- |
+| `Chicken\Game` | The multiplayer game: `GameHub` (facade) with `Lobby`, `Invitations`, `MatchService`, `GameMatch`, `RankingBook` | **State** (`MatchState` → `Phase\ServePhase` / `FlightPhase` / `OverPhase`), **Command** (one `Handler\*` per client message), **Factory** (`GameHub::create`) |
+| `Chicken\Physics` | Server copy of the game physics: `Hen`, `DefenderView`, `CatchArbiter`, `ThrowValidator` | Value objects (`Launch`, `Reach`), strategy (`CheckMode`: enforce / log / off) |
+| `Chicken\Ranking` | Elo, `Ranking` (immutable), `PairLimiter` (anti-collusion), `RankingStore` | **Repository** (`RankingStore`), immutable value objects updated with `clone with` |
+| `Chicken\WebSocket` | RFC 6455: `FrameCodec`, `Handshake`, `Frame`, `Opcode` | |
+| `Chicken\Server` | Sockets and the `stream_select` loop (`SocketServer`, `Connection`); knows nothing about the game | **Adapter** (`Connection` implements the game's `Transport`) |
+| `Chicken\Api` | The leaderboard API: `ApiController`, `Action\StartGame` / `RecordScore`, tickets, rate limiting | **Command** (`Action\ApiAction`), **Repository** (`ScoreFile`, `AbuseStore`) |
+| `Chicken\Support` | `Env`, `Nickname`, `SystemClock` (PSR-20), `StdoutLogger` (PSR-3) | Dependency injection of clock, logger and randomizer |
+
+PHP 8.5 and recent PHP features in use: the pipe operator (`Nickname::clean`), `clone with` on readonly classes (`Player`,
+`ScoreRow`), `#[\NoDiscard]` on immutable updates, `array_first` / `array_find` / `array_any`, property hooks and
+asymmetric visibility (`GameMatch`, `Client`, `Connection`), typed class constants, enums for every protocol vocabulary
+(`ClientMessage`, `Event`, `MatchState`, `ClientStatus`), `readonly` classes, `#[\Override]`, `json_validate`, `mb_trim`,
+`new` in initializers and `Random\Randomizer` injection.
+
 ### How multiplayer works
 
-- The WebSocket server (`server/server.php`) has no dependencies: it implements RFC 6455 directly
+- The WebSocket server (`server/server.php`) has no framework: it implements RFC 6455 directly
   on top of `stream_select`.
 - Trajectories are **deterministic**: the thrower only sends the parameters of the shot (position,
   speed, spin). Each client replays the physics locally with mirrored coordinates (left and right
@@ -118,7 +144,7 @@ What the server does, and what it cannot do:
 | Where | Protection |
 | --- | --- |
 | Multiplayer scores | Counted by the server only; clients cannot send scores, results or "game over". |
-| Catches | The defender announces "caught" **with the position of the hand**; the server replays the chicken's trajectory (same physics as the game, `server/physics.php`) and accepts the catch only if it was possible, within a network tolerance. An impossible catch becomes a point for the thrower. |
+| Catches | The defender announces "caught" **with the position of the hand**; the server replays the chicken's trajectory (same physics as the game, `Chicken\Physics\CatchArbiter`) and accepts the catch only if it was possible, within a network tolerance. An impossible catch becomes a point for the thrower. |
 | Throws | Accepted only if the game's interface could have produced them (start position, speed, spin and a reachable aim point). |
 | Collusion | A ranked match cannot end faster than the game allows (1.5 s per point). Between the same two players, rating gains drop to ×1, ×1, ×0.5, ×0.25, then 0 within 24 hours. Two tabs of the same browser never rank against each other. |
 | Nicknames | Reserved by the first browser token that finishes a ranked game under it. |

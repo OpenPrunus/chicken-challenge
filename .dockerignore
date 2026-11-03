@@ -1,2 +1,7 @@
 web/data/scores.json
 .git
+vendor
+node_modules
+.phpunit.cache
+tests
+.github

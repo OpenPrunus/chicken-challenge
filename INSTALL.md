@@ -49,13 +49,13 @@ If you change the WebSocket port, set the full URL in `CHICKEN_WS` (see below).
 
 ## 2. Without Docker
 
-Requirements: PHP with the `json` and `mbstring` extensions (tested version: **8.5**; other
-versions have not been tried), and a web server (Apache, nginx + php-fpm) or PHP's built-in server
-for testing.
+Requirements: **PHP 8.5** with the `json` and `mbstring` extensions, [Composer](https://getcomposer.org),
+and a web server (Apache, nginx + php-fpm) or PHP's built-in server for testing.
 
 ```bash
 git clone https://github.com/OpenPrunus/chicken-challenge.git
 cd chicken-challenge
+composer install --no-dev      # PSR-3 / PSR-20 interfaces and the autoloader (src/ is namespace Chicken\)
 
 # 1) the website (PHP development server)
 mkdir -p web/data && chmod 775 web/data
@@ -102,6 +102,7 @@ WantedBy=multi-user.target
 | `WS_PORT` | WS server | listening port | `8081` |
 | `WS_ALLOWED_ORIGINS` | WS server | allowed origins, comma-separated | empty = all |
 | `CHICKEN_DATA_DIR` | WS server | directory where `multi_scores.json` is written (must be writable, and the same one the website reads) | `web/data` (set to `/var/www/html/data` in the Docker image) |
+| `CHICKEN_AUTOLOAD` | website, WS server | path of Composer's `vendor/autoload.php`, when it is not at the usual place (`../vendor` next to `web/`, or beside `server.php`) | set to `/opt/chicken/vendor/autoload.php` in the Docker image |
 
 Anti-cheat tuning (defaults are fine; see the *Anti-cheat* section of the README):
 

@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<ruleset name="Chicken Challenge">
+  <description>PSR-12 pour tout le PHP du dépôt.</description>
+  <arg name="colors"/>
+  <arg value="sp"/>
+  <file>src</file>
+  <file>server</file>
+  <file>web/api.php</file>
+  <file>tests/php</file>
+  <rule ref="PSR12"/>
+  <!--
+    PHP_CodeSniffer 4 ne comprend pas encore les property hooks de PHP 8.4+ (`public bool $x { get => ...; }`) : il lit
+    « $this » dans le corps du hook comme une propriété sans visibilité. Faux positifs, exclus fichier par fichier.
+  -->
+  <rule ref="PSR2.Classes.PropertyDeclaration">
+    <exclude-pattern>src/Game/Client.php</exclude-pattern>
+    <exclude-pattern>src/Game/GameMatch.php</exclude-pattern>
+    <exclude-pattern>src/Game/RankingBook.php</exclude-pattern>
+    <exclude-pattern>src/Server/Connection.php</exclude-pattern>
+    <exclude-pattern>src/Physics/Hen.php</exclude-pattern>
+  </rule>
+  <!-- Les tests décrivent leurs cas en français, sur des lignes plus longues que le code. -->
+  <rule ref="Generic.Files.LineLength">
+    <properties>
+      <property name="lineLimit" value="180"/>
+      <property name="absoluteLineLimit" value="0"/>
+    </properties>
+  </rule>
+</ruleset>

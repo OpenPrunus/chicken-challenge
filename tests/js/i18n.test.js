@@ -7,6 +7,9 @@ const vm = require('node:vm');
 
 const ROOT = path.join(__dirname, '..', '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
+/** Tous les fichiers .php (récursivement) d'un dossier du dépôt, en chemins relatifs à la racine. */
+const phpFiles = (dir) => fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })
+  .flatMap((e) => (e.isDirectory() ? phpFiles(path.join(dir, e.name)) : e.name.endsWith('.php') ? [path.join(dir, e.name)] : []));
 const I18N_SRC = read('web/assets/i18n.js');
 
 // Charge i18n.js dans un contexte isolé, avec un faux navigateur.
@@ -226,7 +229,8 @@ describe('cohérence des dictionnaires', () => {
     for (const k of families) assert.ok(k in dict.fr && k in dict.en, k);
   });
   test('tous les codes du serveur ont un message srv.<code> dans les deux langues', () => {
-    const php = read('server/server.php');
+    // le protocole du salon vit dans src/Game : on parcourt tout le code PHP du serveur de jeu
+    const php = phpFiles('src/Game').map(read).join('\n');
     const codes = new Set([...php.matchAll(/'code'\s*=>\s*'(\w+)'/g)].map((m) => m[1]));
     assert.ok(codes.size >= 5, `codes trouvés : ${[...codes]}`);
     for (const c of codes) { assert.ok(`srv.${c}` in dict.fr, `fr:srv.${c}`); assert.ok(`srv.${c}` in dict.en, `en:srv.${c}`); }
