@@ -7,9 +7,10 @@ RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --cla
 
 FROM php:8.5-apache-trixie
 
-# .htaccess de data/ (Require all denied) honoré
+# .htaccess de data/ (Require all denied) honoré ; l'alias /icons/ d'Apache (ses propres icônes) est retiré : le site a son dossier icons/
 RUN a2enmod rewrite && \
-    sed -ri 's/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
+    sed -ri 's/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf && \
+    sed -i '/Alias \/icons\//d' /etc/apache2/mods-available/alias.conf
 
 # data/ n'est jamais servi par le web, même si un bind-mount masque son .htaccess
 RUN printf '<Directory /var/www/html/data>\n    Require all denied\n</Directory>\n' > /etc/apache2/conf-available/chicken-data.conf && \

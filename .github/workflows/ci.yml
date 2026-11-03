@@ -108,6 +108,7 @@ jobs:
           test "$(code $B/)" = 200
           curl -s $B/ | grep -q 'wss:\\/\\/example.test\\/ws'
           for f in engine.js i18n.js game.js style.css; do test "$(code $B/assets/$f)" = 200; done
+          for f in manifest.webmanifest sw.js icons/icon-192.png; do test "$(code $B/$f)" = 200; done
           # the API needs a signed ticket (delivered when a game starts), validates scores and persists them on the host
           TOK=$(openssl rand -hex 16)
           ticket() { curl -s -X POST -H 'Content-Type: application/json' -d '{"action":"start","token":"'$TOK'","level":1}' $B/api.php | jq -r .ticket; }
