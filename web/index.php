@@ -9,6 +9,11 @@ $c = filemtime(__DIR__ . '/assets/style.css');
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#fbfbf8">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<script src="pwa.js" defer></script>
 <title>Chicken Challenge</title>
 <link rel="stylesheet" href="assets/style.css?v=<?= $c ?>">
 </head>

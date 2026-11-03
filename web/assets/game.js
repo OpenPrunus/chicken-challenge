@@ -1012,7 +1012,7 @@ function openLobby() {
       $('overMsg').textContent = t('over.lostMsg2'); $('again').disabled = true;
     } else {
       $('auto').disabled = true;
-      lobbyStatus(opened ? 'net.lost' : 'net.down');
+      lobbyStatus(opened ? 'net.lost' : navigator.onLine === false ? 'net.offline' : 'net.down');
     }
   };
 }

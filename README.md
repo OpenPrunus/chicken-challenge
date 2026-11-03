@@ -44,6 +44,7 @@ Whoever fails to catch it takes the bird right in the face: **GOAL!**
   browser is set to French, English otherwise) and can be switched with the **FR / EN** buttons
   on the menu; the choice is remembered.
 
+- **Installable and playable offline** (PWA): web manifest, icons, and a service worker that serves the last visit's files when there is no network. Solo and computer modes work offline; online play shows a clear message.
 Translations live in `web/assets/i18n.js` (one dictionary per language); adding a language is a matter
 of adding a dictionary there and a button in `web/index.php`.
 

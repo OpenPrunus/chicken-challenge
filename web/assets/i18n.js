@@ -38,7 +38,7 @@ const DICT = {
     'srv.invalid_name': 'Pseudo invalide.', 'srv.unavailable': 'Ce joueur n\'est plus disponible.',
     'srv.timeout': 'Pas de réponse.', 'srv.refused': '{name} a refusé le défi.', 'srv.stale_invite': 'Ce défi n\'est plus valable.',
     'srv.error': 'Erreur.',
-    'net.down': 'Serveur multijoueur injoignable (port 8081 ?).', 'net.lost': 'Déconnecté du serveur.',
+    'net.down': 'Serveur multijoueur injoignable (port 8081 ?).', 'net.lost': 'Déconnecté du serveur.', 'net.offline': 'Hors ligne : le multijoueur a besoin d\'internet. Le jeu contre l\'ordinateur reste jouable.',
 
     'game.fs': 'Plein écran (F)', 'game.quit': '✕ Quitter', 'game.quit.title': 'Quitter (Échap)',
     'game.quit.confirm': 'Quitter la partie en cours ?',
@@ -102,7 +102,7 @@ const DICT = {
     'srv.invalid_name': 'Invalid nickname.', 'srv.unavailable': 'This player is no longer available.',
     'srv.timeout': 'No answer.', 'srv.refused': '{name} declined the challenge.', 'srv.stale_invite': 'This challenge is no longer valid.',
     'srv.error': 'Error.',
-    'net.down': 'Multiplayer server unreachable (port 8081?).', 'net.lost': 'Disconnected from the server.',
+    'net.down': 'Multiplayer server unreachable (port 8081?).', 'net.lost': 'Disconnected from the server.', 'net.offline': 'Offline: multiplayer needs the internet. The game against the computer still works.',
 
     'game.fs': 'Fullscreen (F)', 'game.quit': '✕ Quit', 'game.quit.title': 'Quit (Esc)',
     'game.quit.confirm': 'Leave the current game?',
