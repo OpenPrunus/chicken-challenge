@@ -18,7 +18,7 @@ concurrency:
 
 env:
   # Seuil minimal de couverture des lignes PHP (%) : la CI échoue s'il baisse
-  COVERAGE_MIN: 0
+  COVERAGE_MIN: 93
 
 jobs:
   js-unit:
