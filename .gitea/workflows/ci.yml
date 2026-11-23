@@ -1,16 +1,24 @@
 name: CI
 
+# CI sur le Gitea interne (git.prunus.dev, runner LXC 111). GitHub n'est qu'une sauvegarde : pas de CI là-bas.
 on:
   push:
     branches: [main]
+    # Jamais sur une étiquette (Gitea lancerait sinon la CI de chaque étiquette poussée)
+    tags-ignore: ['**']
   pull_request:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Le groupe est partagé entre dépôts sur Gitea : le nom du dépôt y figure
+  group: ci-${{ github.repository }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  # Seuil minimal de couverture des lignes PHP (%) : la CI échoue s'il baisse
+  COVERAGE_MIN: 0
 
 jobs:
   js-unit:
@@ -22,7 +30,12 @@ jobs:
         with:
           node-version: 22
       - run: npm run lint
-      - run: npm run test:unit
+      - name: Tests unitaires et couverture
+        run: npm run test:coverage 2>&1 | tee coverage.txt
+      - name: Résumé de la couverture
+        if: always()
+        run: |
+          { echo '### Couverture du code JavaScript'; echo '```'; cat coverage.txt 2>/dev/null; echo '```'; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
   php-quality:
     name: PHP 8.5 (PSR-12, static analysis, unit tests)
@@ -34,7 +47,7 @@ jobs:
           php-version: '8.5'
           extensions: mbstring
           tools: composer
-          coverage: none
+          coverage: pcov
       - name: Syntax check of every PHP file
         run: |
           find src server web tests -name '*.php' -print0 | xargs -0 -n1 php -l > /dev/null
@@ -43,8 +56,15 @@ jobs:
         run: composer cs
       - name: Static analysis (PHPStan, level 8)
         run: composer stan
-      - name: Unit tests
-        run: composer test
+      - name: Unit tests and coverage
+        run: vendor/bin/phpunit --colors=never --coverage-text 2>&1 | tee php-coverage.txt
+      - name: Résumé et seuil de couverture PHP
+        run: |
+          { echo '### Couverture du code PHP'; echo '```'; grep -A6 'Code Coverage Report' php-coverage.txt; echo '```'; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          pct=$(grep -E '^\s+Lines:' php-coverage.txt | head -1 | sed -E 's/.*Lines:\s+([0-9.]+)%.*/\1/')
+          test -n "$pct" || { echo 'taux de couverture introuvable'; exit 1; }
+          echo "Couverture des lignes PHP : ${pct} % (minimum ${COVERAGE_MIN} %)"
+          awk -v p="$pct" -v m="$COVERAGE_MIN" 'BEGIN{exit !(p+0 >= m+0)}'
 
   integration:
     name: Multiplayer server (integration tests)
@@ -79,6 +99,11 @@ jobs:
           tools: composer
           coverage: none
       - run: composer install --no-interaction --prefer-dist --no-progress --no-dev
+      - name: Installer Google Chrome (absent de l'image du runner)
+        run: |
+          wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ./google-chrome-stable_current_amd64.deb
       - name: Drive headless Chrome with an emulated phone (layout, orientation, touch aiming and catching)
         run: npm run test:browser
         env:
@@ -87,23 +112,36 @@ jobs:
   docker:
     name: Docker image (smoke test)
     runs-on: ubuntu-latest
+    env:
+      # Le démon Docker est celui de l'hôte, partagé entre les tâches : noms uniques par exécution, les conteneurs testés
+      # partagent le réseau de la tâche (--network container:...) et les données vivent dans un volume Docker (pas de
+      # dossier de l'hôte ni de port publié, donc rien qui entre en collision).
+      IMAGE: chicken-challenge:ci-${{ github.run_id }}
+      NAME: chicken-challenge-${{ github.run_id }}
+      VOL: chicken-challenge-data-${{ github.run_id }}
     steps:
       - uses: actions/checkout@v7
+      - name: Outil dv (commande dans le volume de données, en root)
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          printf '#!/bin/sh\nexec docker run --rm -i -v "%s:/d" --user 0 "%s" "$@"\n' "$VOL" "$IMAGE" > "$RUNNER_TEMP/bin/dv"
+          chmod +x "$RUNNER_TEMP/bin/dv"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Build the image
-        run: docker build -t chicken-challenge:ci .
+        run: docker build -t "$IMAGE" .
       - name: Start the website with a bind-mounted data directory (as in production)
         run: |
-          mkdir -p "$RUNNER_TEMP/data"
-          sudo chown 33:33 "$RUNNER_TEMP/data"
-          docker run -d --name web -p 8080:80 -v "$RUNNER_TEMP/data:/var/www/html/data" \
-            -e CHICKEN_WS=wss://example.test/ws -e CHICKEN_MIN_POINT_SECONDS=0 chicken-challenge:ci
-          docker run -d --name ws -p 8081:8081 --user 33:33 -v "$RUNNER_TEMP/data:/var/www/html/data" \
-            -e WS_ALLOWED_ORIGINS=https://example.test chicken-challenge:ci php /opt/chicken/server.php
-          for i in $(seq 1 30); do curl -fs http://localhost:8080/ >/dev/null && break; sleep 1; done
+          docker volume create "$VOL" > /dev/null
+          dv chown 33:33 /d
+          docker run -d --name "$NAME-web" --network "container:$(hostname)" -v "$VOL:/var/www/html/data" \
+            -e CHICKEN_WS=wss://example.test/ws -e CHICKEN_MIN_POINT_SECONDS=0 "$IMAGE"
+          docker run -d --name "$NAME-ws" --network "container:$(hostname)" --user 33:33 -v "$VOL:/var/www/html/data" \
+            -e WS_ALLOWED_ORIGINS=https://example.test "$IMAGE" php /opt/chicken/server.php
+          for i in $(seq 1 30); do curl -fs http://localhost/ >/dev/null && break; sleep 1; done
       - name: Smoke test
         run: |
           set -eu
-          B=http://localhost:8080
+          B=http://localhost
           code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
           test "$(code $B/)" = 200
           curl -s $B/ | grep -q 'wss:\\/\\/example.test\\/ws'
@@ -123,7 +161,7 @@ jobs:
           test "$(code -X DELETE $B/api.php)" = 405
           curl -s $B/api.php | grep -q '"name":"ci"'
           ! curl -s $B/api.php | grep -q '"th"'                          # token hashes are never published
-          sudo grep -q '"name":"ci"' "$RUNNER_TEMP/data/scores.json"
+          dv grep -q '"name":"ci"' /d/scores.json
           # a name is reserved by the first token that uses it
           TOK2=$(openssl rand -hex 16); T2=$(curl -s -X POST -H 'Content-Type: application/json' -d '{"action":"start","token":"'$TOK2'","level":1}' $B/api.php | jq -r .ticket)
           test "$(score $T2 12 0)" = 403
@@ -131,8 +169,8 @@ jobs:
           test "$(code $B/data/scores.json)" = 403
           test "$(code $B/data/)" = 403
           # if the file is not writable, the API must fail loudly (500, JSON) and not leak PHP warnings or paths
-          sudo chown root:root "$RUNNER_TEMP/data/scores.json"
-          sudo chmod 644 "$RUNNER_TEMP/data/scores.json"
+          dv chown root:root /d/scores.json
+          dv chmod 644 /d/scores.json
           T3=$(ticket)
           out="$(curl -s -w ' HTTP=%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"ticket":"'$T3'","name":"ci","me":4,"opp":1}' $B/api.php)"
           echo "$out"
@@ -141,22 +179,28 @@ jobs:
           # reads keep working
           curl -s $B/api.php | grep -q '"name":"ci"'
           # the multiplayer server shares the data directory (as www-data, like in production)
-          docker logs ws | grep -q 'Ranking: 0 player(s) loaded from /var/www/html/data/multi_scores.json'
-          ! docker logs ws | grep -q WARNING
+          docker logs "$NAME-ws" | grep -q 'Ranking: 0 player(s) loaded from /var/www/html/data/multi_scores.json'
+          ! docker logs "$NAME-ws" | grep -q WARNING
           # multiplayer leaderboard: written by the game server, served by the API without any token hash
           test "$(curl -s "$B/api.php?board=multi")" = '[]'
           printf '%s' '{"version":1,"players":{"alice":{"name":"Alice","th":"secrethash","rating":1020,"played":1,"wins":1,"losses":0,"gf":4,"ga":0}}}' \
-            | sudo tee "$RUNNER_TEMP/data/multi_scores.json" > /dev/null
-          sudo chmod 644 "$RUNNER_TEMP/data/multi_scores.json"
+            | dv sh -c 'cat > /d/multi_scores.json'
+          dv chmod 644 /d/multi_scores.json
           curl -s "$B/api.php?board=multi" | grep -q '"rating":1020'
           ! curl -s "$B/api.php?board=multi" | grep -q secrethash
           test "$(code $B/data/multi_scores.json)" = 403
           for f in secret.key abuse.json api.lock; do test "$(code $B/data/$f)" = 403; done      # anti-abuse state is never served
           # the WebSocket server is up and enforces its origin list
-          docker logs ws | grep -q 'listening'
+          docker logs "$NAME-ws" | grep -q 'listening'
           H='Connection: Upgrade'; U='Upgrade: websocket'; V='Sec-WebSocket-Version: 13'; K='Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=='
           curl -s -i --max-time 3 -H "$H" -H "$U" -H "$V" -H "$K" -H 'Origin: https://example.test' http://localhost:8081/ | head -1 | grep -q 101
           curl -s -i --max-time 3 -H "$H" -H "$U" -H "$V" -H "$K" -H 'Origin: https://evil.test' http://localhost:8081/ | head -1 | grep -q 400
       - name: Container logs
         if: failure()
-        run: docker logs web; docker logs ws
+        run: docker logs "$NAME-web"; docker logs "$NAME-ws"
+      - name: Nettoyage
+        if: always()
+        run: |
+          docker rm -f "$NAME-web" "$NAME-ws" >/dev/null 2>&1 || true
+          docker volume rm -f "$VOL" >/dev/null 2>&1 || true
+          docker rmi -f "$IMAGE" >/dev/null 2>&1 || true

@@ -13,6 +13,7 @@
     "test:integration": "node --test --test-timeout=120000 \"tests/integration/*.test.js\"",
     "lint": "node --check web/assets/engine.js && node --check web/assets/game.js && node --check web/assets/i18n.js && node --check tests/browser/mobile.test.js && node --check tests/fixtures/generate.js && node --check tests/integration/protocol.test.js && node --check tests/integration/ranking.test.js",
     "test:browser": "node --test --test-timeout=120000 \"tests/browser/*.test.js\"",
-    "fixtures": "node tests/fixtures/generate.js"
+    "fixtures": "node tests/fixtures/generate.js",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=96 --test-coverage-branches=92 \"tests/js/*.test.js\""
   }
 }
